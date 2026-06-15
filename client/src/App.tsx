@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -132,8 +132,6 @@ export default function App() {
   const orderedPlayers = getOrderedPlayers();
   const myData = gameState?.players.find((p: any) => p.id === socket.id);
   const currentTurnPlayer = gameState?.players[gameState?.currentTurnIndex];
-  
-  // 애니메이션 중이거나 쇼DOWN 단계일 때는 내 턴 인터페이스를 강제로 비활성화
   const isMyTurn = currentTurnPlayer?.id === socket.id && !gameState?.isAnimatingBoard && gameState?.gameStage !== 'SHOWDOWN';
   
   const currentHighest = gameState?.highestBet || 0;
@@ -171,7 +169,6 @@ export default function App() {
             ))}
           </div>
 
-          {/* 중앙 WPL 전광판 연출 레이어 */}
           <AnimatePresence>
             {isShowdown && gameState?.roundWinnerLabel && (
               <motion.div 
@@ -287,7 +284,8 @@ export default function App() {
               value={raiseValue} 
               onChange={(e) => setRaiseValue(Number(e.target.value))} 
               className="h-24 accent-yellow-500" 
-              style={{ writingMode: 'bt-lr', appearance: 'slider-vertical' }} 
+              // 💡 Render 타입스크립트 tsc 엄격 모드 완벽 통과를 위한 형변환 단행
+              style={{ writingMode: 'bt-lr' as any, appearance: 'slider-vertical' as any }} 
             />
             <span className="text-[9px] font-mono text-yellow-400 font-bold">{raiseValue.toLocaleString()}</span>
             
@@ -300,14 +298,12 @@ export default function App() {
         )}
       </div>
 
-      {/* 💡 [하단 가드 제어판 조건식 완벽 튜닝] */}
       <div className="w-full bg-[#14151a] p-4 border-t border-white/5 grid grid-cols-3 gap-2 z-20">
         {gameState?.isAnimatingBoard ? (
           <div className="col-span-3 py-4 bg-yellow-500/5 rounded-xl text-center text-xs text-yellow-500 border border-yellow-500/10 font-bold tracking-widest animate-pulse uppercase">
             🎬 ALL-IN SHOWDOWN: 보드 순차 오픈 연출 중...
           </div>
         ) : gameState?.gameStage === 'SHOWDOWN' ? (
-          // 💡 [버그 제압 분기 추가]: 쇼다운 7초 결과 확인 시간에도 가짜 대기 바를 숨기고 정산 중 상태 유지
           <div className="col-span-3 py-4 bg-emerald-500/5 rounded-xl text-center text-xs text-emerald-400 border border-emerald-500/10 font-bold tracking-widest animate-pulse uppercase">
             📊 SHOWDOWN: 경기 결과 및 족보 정산 확인 중...
           </div>
