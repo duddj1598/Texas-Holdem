@@ -75,7 +75,6 @@ export class TournamentRoom {
   public currentPot: number = 0;
   
   public communityCards: Card[] = [];
-  // 💡 래빗헌팅 결과용 별도 카드 배열
   public rabbitCards: Card[] = []; 
   
   public gameStage: 'WAITING' | 'PREFLOP' | 'FLOP' | 'TURN' | 'RIVER' | 'SHOWDOWN' = 'WAITING';
@@ -89,7 +88,9 @@ export class TournamentRoom {
   public roundWinnerId: string = ''; 
   public roundWinnerLabel: string = ''; 
   public winningCards: Card[] = []; 
-  public exposedPlayerIds: string[] = []; 
+  
+  // 💡 [변경]: 좌/우 카드를 각각 공개했는지 전 세계로 추적하기 위한 객체 매핑
+  public exposedCards: Record<string, { left: boolean, right: boolean }> = {}; 
 
   private blindTimer: NodeJS.Timeout | null = null;
   private actionTimer: NodeJS.Timeout | null = null;
@@ -168,7 +169,7 @@ export class TournamentRoom {
     this.isAnimatingBoard = false;
     this.currentPot = 0;
     this.highestBet = 0;
-    this.exposedPlayerIds = [];
+    this.exposedCards = {};
     
     this.players.forEach(p => { 
       p.cards = []; 
@@ -195,7 +196,7 @@ export class TournamentRoom {
     this.roundWinnerLabel = '';
     this.winningCards = []; 
     this.isAnimatingBoard = false;
-    this.exposedPlayerIds = [];
+    this.exposedCards = {};
     this.rabbitCards = [];
 
     this.players.forEach(p => {
@@ -410,17 +411,21 @@ export class TournamentRoom {
     this.nextStage();
   }
 
-  // 💡 상대가 볼 수 있게끔 오픈한 유저 리스트 브로드캐스팅
-  public handleExposeHand(id: string): boolean {
-    if (this.gameStage === 'SHOWDOWN' && !this.exposedPlayerIds.includes(id)) {
-      this.exposedPlayerIds.push(id); 
+  // 💡 [수정]: 1번, 2번 카드 각각 오픈 여부를 서버에서 대조하고 방 전체에 뿌려줍니다.
+  public handleExposeHand(id: string, target: 'left' | 'right' | 'all'): boolean {
+    if (this.gameStage === 'SHOWDOWN') {
+      if (!this.exposedCards[id]) {
+        this.exposedCards[id] = { left: false, right: false };
+      }
+      if (target === 'left' || target === 'all') this.exposedCards[id].left = true;
+      if (target === 'right' || target === 'all') this.exposedCards[id].right = true;
+      
       this.io.to(this.id).emit('room_updated', this.getState()); 
       return true;
     }
     return false;
   }
 
-  // 💡 [래빗헌팅 기능 추가]: 남은 보드 카드 전부 오픈
   public handleRabbitHunt(): boolean {
     if (this.gameStage === 'SHOWDOWN' && this.communityCards.length < 5 && this.rabbitCards.length === 0) {
       const cardsNeeded = 5 - this.communityCards.length;
@@ -643,7 +648,7 @@ export class TournamentRoom {
       pot: this.currentPot,
       gameStage: this.gameStage,
       communityCards: this.communityCards.filter(c => c && c.suit && c.value),
-      rabbitCards: this.rabbitCards.filter(c => c && c.suit && c.value), // 💡 래빗헌팅 카드 동기화
+      rabbitCards: this.rabbitCards.filter(c => c && c.suit && c.value), 
       dealerIndex: this.dealerIndex,
       currentTurnIndex: this.currentTurnIndex,
       hostId: this.hostId,
@@ -654,7 +659,7 @@ export class TournamentRoom {
       roundWinnerLabel: this.roundWinnerLabel, 
       winningCards: this.winningCards, 
       isAnimatingBoard: this.isAnimatingBoard, 
-      exposedPlayerIds: this.exposedPlayerIds, 
+      exposedCards: this.exposedCards, 
       players: this.players.map(p => ({
         id: p.id,
         name: p.name,

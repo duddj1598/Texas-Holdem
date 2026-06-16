@@ -33,23 +33,19 @@ io.on('connection', (socket) => {
 
   socket.on('join_room', (data: { name: string }) => {
     socket.join('wpl-room');
-    const success = pokerRoom.addPlayer(socket.id, data.name || '알수없음');
-    if (success) sendRoomUpdate();
+    if (pokerRoom.addPlayer(socket.id, data.name || '알수없음')) sendRoomUpdate();
   });
 
   socket.on('start_game', () => {
-    const success = pokerRoom.forceStartGame(socket.id);
-    if (success) sendRoomUpdate();
+    if (pokerRoom.forceStartGame(socket.id)) sendRoomUpdate();
   });
 
   socket.on('player_action', (data: { actionType: 'FOLD' | 'CHECK' | 'CALL' | 'RAISE'; amount: number }) => {
-    const success = pokerRoom.handleAction(socket.id, data.actionType, data.amount);
-    if (success) sendRoomUpdate();
+    if (pokerRoom.handleAction(socket.id, data.actionType, data.amount)) sendRoomUpdate();
   });
 
   socket.on('request_rebuy', () => {
-    const success = pokerRoom.handleRebuy(socket.id);
-    if (success) sendRoomUpdate();
+    if (pokerRoom.handleRebuy(socket.id)) sendRoomUpdate();
   });
 
   socket.on('declare_out', () => {
@@ -57,12 +53,12 @@ io.on('connection', (socket) => {
     sendRoomUpdate();
   });
 
-  // 💡 [원인 해결]: 핸드 오픈을 서버가 받아서 브로드캐스팅하도록 이벤트 연결
-  socket.on('expose_hand', () => {
-    pokerRoom.handleExposeHand(socket.id);
+  // 💡 [핵심 버그 수정]: 좌/우 개별 카드 오픈 신호를 수신하여 브로드캐스팅
+  socket.on('expose_hand', (data?: { target: 'left' | 'right' | 'all' }) => {
+    pokerRoom.handleExposeHand(socket.id, data?.target || 'all');
   });
 
-  // 💡 [신규 기능]: 래빗헌팅 요청 이벤트 연결
+  // 💡 [핵심 버그 수정]: 래빗헌팅(보드 확인) 신호 수신
   socket.on('request_rabbit_hunt', () => {
     pokerRoom.handleRabbitHunt();
   });
@@ -74,9 +70,6 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 4000;
-
 server.listen(PORT, () => {
-  console.log(`=========================================`);
   console.log(`🚀 WPL POKER 백엔드 서버 온라인: ${PORT}`);
-  console.log(`=========================================`);
 });
