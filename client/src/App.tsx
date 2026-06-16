@@ -27,7 +27,6 @@ export default function App() {
   const [globalTimer, setGlobalTimer] = useState<number>(15);
 
   useEffect(() => {
-    // 💡 [배포 핵심 연동]: localhost 연결 제거하고 Render 서버 주소를 다이렉트로 바라보도록 마이그레이션
     const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:4000';
     socket = io(SERVER_URL, {
       transports: ['websocket', 'polling']
@@ -49,9 +48,13 @@ export default function App() {
       setGlobalTimer(tick.timeLeft);
     });
 
+    // 💡 [버그 2 해결]: 토너먼트 마감 시 수신되는 스코어보드 레코드를 배열 깊은 복사 구조로 캐싱 보장
     socket.on('tournament_winner', (data) => {
+      console.log("🏆 Tournament Final Report Received:", data);
       setWinnerName(data.winner);
-      setTournamentReport(data.report || []);
+      if (data.report && Array.isArray(data.report)) {
+        setTournamentReport([...data.report]);
+      }
     });
 
     return () => { socket.disconnect(); };
@@ -135,8 +138,6 @@ export default function App() {
   const orderedPlayers = getOrderedPlayers();
   const myData = gameState?.players.find((p: any) => p.id === socket.id);
   const currentTurnPlayer = gameState?.players[gameState?.currentTurnIndex];
-  
-  // 💡 애니메이션 진행 중이거나 정산(SHOWDOWN) 스테이지일 때는 액션 턴 버퍼 차단
   const isMyTurn = currentTurnPlayer?.id === socket.id && !gameState?.isAnimatingBoard && gameState?.gameStage !== 'SHOWDOWN';
   
   const currentHighest = gameState?.highestBet || 0;
@@ -289,7 +290,6 @@ export default function App() {
               value={raiseValue} 
               onChange={(e) => setRaiseValue(Number(e.target.value))} 
               className="h-24 accent-yellow-500" 
-              // 💡 [컴파일 방어]: Render tsc 빌드 완벽 관통을 위한 주입 완료
               style={{ writingMode: 'bt-lr' as any, appearance: 'slider-vertical' as any }} 
             />
             <span className="text-[9px] font-mono text-yellow-400 font-bold">{raiseValue.toLocaleString()}</span>
@@ -303,7 +303,6 @@ export default function App() {
         )}
       </div>
 
-      {/* 💡 [WPL 고유 연출 완성]: 애니메이션 카드 드로우 및 쇼다운 정산 상태에 어두운 유령 대기 바 출몰 원천 금지 가드 */}
       <div className="w-full bg-[#14151a] p-4 border-t border-white/5 grid grid-cols-3 gap-2 z-20">
         {gameState?.isAnimatingBoard ? (
           <div className="col-span-3 py-4 bg-yellow-500/5 rounded-xl text-center text-xs text-yellow-500 border border-yellow-500/10 font-bold tracking-widest animate-pulse uppercase">
@@ -349,6 +348,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* 💡 [버그 2 갱신]: 스크린샷 10.43.52 결과창에서 리바이인 횟수와 순위표가 증발하던 렌더링 누수 전면 해결 */}
       <AnimatePresence>
         {winnerName && (
           <div className="fixed inset-0 bg-black/95 flex flex-col items-center justify-center p-4 z-50">
