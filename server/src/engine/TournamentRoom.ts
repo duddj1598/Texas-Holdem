@@ -94,6 +94,10 @@ export class TournamentRoom {
   public roundWinnerLabel: string = ''; 
   public winningCards: Card[] = []; 
 
+  // 💡 [신규 상태]: 독점 기권승 시 핸드 공개를 요청한 유저 ID와 공개 여부 플래그
+  public exposeHandRequesterId: string = ''; 
+  public isHandExposed: boolean = false; 
+
   private blindTimer: NodeJS.Timeout | null = null;
   private actionTimer: NodeJS.Timeout | null = null;
   private io: any;
@@ -152,7 +156,6 @@ export class TournamentRoom {
     this.players = this.players.filter(p => p.id !== id);
     if (this.hostId === id && this.players.length > 0) this.hostId = this.players[0].id;
     
-    // 💡 [요구사항 2]: 모든 플레이어가 나가거나 1명 이하만 남으면 대기실 복귀 및 블라인드 100/200 전면 리셋
     if (this.players.length < 2) {
       this.resetToLobby();
     } else {
@@ -162,7 +165,6 @@ export class TournamentRoom {
 
   private resetToLobby() {
     this.gameStage = 'WAITING';
-    // 💡 [요구사항 2 핵심]: 다음 토너먼트 시작을 위해 블라인드 레벨을 무조건 1단계(100/200)로 리셋
     this.blindLevel = 1; 
     this.communityCards = [];
     this.sidePots = [];
@@ -172,6 +174,9 @@ export class TournamentRoom {
     this.isAnimatingBoard = false;
     this.currentPot = 0;
     this.highestBet = 0;
+    // 💡 [상태 초기화]: 로비 리셋 시 핸드 공개 상태 초기화
+    this.exposeHandRequesterId = '';
+    this.isHandExposed = false;
     
     this.players.forEach(p => { 
       p.cards = []; 
@@ -198,6 +203,9 @@ export class TournamentRoom {
     this.roundWinnerLabel = '';
     this.winningCards = []; 
     this.isAnimatingBoard = false;
+    // 💡 [상태 초기화]: 새 핸드 시작 시 핸드 공개 상태 초기화
+    this.exposeHandRequesterId = '';
+    this.isHandExposed = false;
 
     this.players.forEach(p => {
       if (!p.isRebuyWaiting && p.chips > 0) {
@@ -208,7 +216,6 @@ export class TournamentRoom {
 
     const survivors = this.players.filter(p => !p.isRebuyWaiting && (p.chips > 0 || p.buyInCount < 3));
     
-    // 💡 [요구사항 2]: 토너먼트가 최종 종료되었을 때 정산창을 띄우고 로비로 돌아가며 블라인드 초기화
     if (survivors.length < 2) {
       const finalWinner = survivors[0] || this.players.find(p => p.chips > 0);
       
@@ -296,7 +303,6 @@ export class TournamentRoom {
       if (this.timeLeft <= 0) {
         if (this.actionTimer) clearInterval(this.actionTimer);
         const currentPlayer = this.players[this.currentTurnIndex];
-        // 타임아웃 강제 폴드 격발
         if (currentPlayer) this.handleAction(currentPlayer.id, 'FOLD', 0);
       } else {
         this.io.to(this.id).emit('timer_tick', { timeLeft: this.timeLeft, currentTurnIndex: this.currentTurnIndex });
@@ -310,10 +316,8 @@ export class TournamentRoom {
     const player = this.players[this.currentTurnIndex];
     if (!player || player.id !== playerId || this.gameStage === 'WAITING' || this.gameStage === 'SHOWDOWN') return false;
 
-    // 💡 [요구사항 1 완벽 해결]: 수동 클릭 및 자동 타임아웃 진입 시 해당 유저가 이미 FOLD 상태라면 연산을 즉시 탈출(차단)
     if (player.isFolded) return false;
 
-    // 액션이 유효하므로 즉시 타이머 해제하여 레이싱 컨디션 원천 방어
     if (this.actionTimer) {
       clearInterval(this.actionTimer);
       this.actionTimer = null;
@@ -367,14 +371,30 @@ export class TournamentRoom {
   private moveToNextTurn() {
     const foldedPlayers = this.players.filter(p => p.isFolded);
 
+    // 💡 [요구사항 반영]: 독점 기권승 시 승자 연출 타임에 핸드 공개 요청을 받을 수 있도록 분기 수정
     if (foldedPlayers.length === this.players.length - 1) {
       const winner = this.players.find(p => !p.isFolded);
       this.roundWinnerId = winner?.id || '';
-      this.roundWinnerLabel = '독점 기권승';
+      // 💡 [요구사항]: 독점 기권승 시 하단 조작 바 잠금 메시지를 "승리!"로 변경
+      this.roundWinnerLabel = '독점 기권승 🔥';
       this.winningCards = [];
       if (winner) winner.chips += this.currentPot;
       this.currentPot = 0;
-      this.wrapUpHand();
+      
+      // 💡 [상태 변경]: 독점 기권승 연출 페이즈(`SHOWDOWN` 상태를 임시로 빌려 씀)
+      this.gameStage = 'SHOWDOWN'; 
+      // 독점 기권승 시 핸드 공개를 결정할 수 있는 기회를 승자에게 제공
+      this.exposeHandRequesterId = winner?.id || '';
+      this.isHandExposed = false; // 아직 공개 안 함
+
+      if (this.actionTimer) clearInterval(this.actionTimer);
+      this.io.to(this.id).emit('room_updated', this.getState());
+
+      // 💡 [타임아웃]: 7초간 핸드 공개 결정을 기다리고 정산 수행 (기존 `determineShowdownWinner`의 딜레이와 동일)
+      setTimeout(() => {
+        this.gameStage = 'PREFLOP'; // 임시로 PREFLOP으로 돌려 Rebuy 대기열 활성화
+        this.wrapUpHand();
+      }, 7000);
       return;
     }
 
@@ -393,7 +413,6 @@ export class TournamentRoom {
     while (loopCount < this.players.length) {
       nextIndex = (nextIndex + 1) % this.players.length;
       const p = this.players[nextIndex];
-      // 💡 폴드한 사람이나 올인한 사람, 리바이인 대기자는 철저하게 스킵
       if (!p.isFolded && !p.isAllIn && !p.isRebuyWaiting) {
         this.currentTurnIndex = nextIndex;
         this.startActionTimer();
@@ -403,6 +422,17 @@ export class TournamentRoom {
       loopCount++;
     }
     this.nextStage();
+  }
+
+  // 💡 [신규 함수]: 승자가 독점 기권승 시 핸드 공개 버튼을 눌렀을 때 호출되는 RPC
+  public handleExposeHand(id: string): boolean {
+    if (this.gameStage === 'SHOWDOWN' && this.exposeHandRequesterId === id && !this.isHandExposed) {
+      this.isHandExposed = true; // 공개 완료 상태로 변경
+      console.log(`💡 [EXPOSE_HAND] 플레이어가 핸드를 공개했습니다 (ID: ${id})`);
+      this.io.to(this.id).emit('room_updated', this.getState()); // 공개된 상태 방송
+      return true;
+    }
+    return false;
   }
 
   private calculateSidePots() {
@@ -552,6 +582,7 @@ export class TournamentRoom {
     this.io.to(this.id).emit('room_updated', this.getState());
 
     setTimeout(() => {
+      this.gameStage = 'PREFLOP'; 
       this.wrapUpHand();
     }, 7000);
   }
@@ -578,7 +609,7 @@ export class TournamentRoom {
       player.isRebuyWaiting = false; 
       
       const anyoneLeft = this.players.some(p => p.isRebuyWaiting);
-      if (!anyoneLeft && this.gameStage === 'SHOWDOWN') {
+      if (!anyoneLeft && this.gameStage === 'WAITING') { //WAINTG 상태일때만 시작하도록 변경
         this.startNewHand();
       } else {
         this.io.to(this.id).emit('room_updated', this.getState());
@@ -621,6 +652,9 @@ export class TournamentRoom {
       roundWinnerLabel: this.roundWinnerLabel, 
       winningCards: this.winningCards, 
       isAnimatingBoard: this.isAnimatingBoard, 
+      // 💡 [신규 상태]: RPC 상태 동기화 추가
+      exposeHandRequesterId: this.exposeHandRequesterId,
+      isHandExposed: this.isHandExposed,
       players: this.players.map(p => ({
         id: p.id,
         name: p.name,

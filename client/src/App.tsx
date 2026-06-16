@@ -48,13 +48,9 @@ export default function App() {
       setGlobalTimer(tick.timeLeft);
     });
 
-    // 💡 [버그 2 해결]: 토너먼트 마감 시 수신되는 스코어보드 레코드를 배열 깊은 복사 구조로 캐싱 보장
     socket.on('tournament_winner', (data) => {
-      console.log("🏆 Tournament Final Report Received:", data);
       setWinnerName(data.winner);
-      if (data.report && Array.isArray(data.report)) {
-        setTournamentReport([...data.report]);
-      }
+      setTournamentReport(data.report || []);
     });
 
     return () => { socket.disconnect(); };
@@ -63,6 +59,11 @@ export default function App() {
   const handleAction = (type: 'FOLD' | 'CHECK' | 'CALL' | 'RAISE', amt = 0) => {
     socket.emit('player_action', { actionType: type, amount: amt || raiseValue });
     setShowSlider(false);
+  };
+
+  // 💡 [신규 함수]: 승자가 독점 기권승 시 핸드 공개 버튼을 눌렀을 때 호출되는 RPC
+  const handleExposeHand = () => {
+    socket.emit('expose_hand');
   };
 
   const handleDeclareOut = () => {
@@ -138,12 +139,16 @@ export default function App() {
   const orderedPlayers = getOrderedPlayers();
   const myData = gameState?.players.find((p: any) => p.id === socket.id);
   const currentTurnPlayer = gameState?.players[gameState?.currentTurnIndex];
+  
   const isMyTurn = currentTurnPlayer?.id === socket.id && !gameState?.isAnimatingBoard && gameState?.gameStage !== 'SHOWDOWN';
   
   const currentHighest = gameState?.highestBet || 0;
   const myCurrentBet = myData?.currentBet || 0;
   const callCost = currentHighest - myCurrentBet;
   const isShowdown = gameState?.gameStage === 'SHOWDOWN';
+
+  // 💡 [신규 상태 연산]: 내가 현재 독점 기권승의 승자이고, 아직 핸드를 공개하지 않았을 때 버튼을 활성화
+  const isMyExposeHandRequestTurn = isShowdown && gameState?.exposeHandRequesterId === socket.id && !gameState?.isHandExposed;
 
   return (
     <div className="w-full h-screen bg-[#0c0d11] flex flex-col justify-between overflow-hidden text-white relative font-sans select-none">
@@ -205,6 +210,12 @@ export default function App() {
             const circumference = 2 * Math.PI * radius;
             const strokeDashoffset = circumference - (globalTimer / 15) * circumference;
 
+            // 💡 [요구사항 반영 연출]: 독점 기권승의 승자가 핸드를 공개한 경우에만 카드 부채꼴 오픈
+            const isHandExposedByServer = isShowdown && gameState?.isHandExposed && gameState?.exposeHandRequesterId === player.id;
+            const shouldExposeCard = isShowdown || isMe || isHandExposedByServer;
+            const grayscaleCondition = isShowdown && !isPartOfWinningHand;
+            const highlightCondition = isShowdown && isPartOfWinningHand;
+
             return (
               <div 
                 key={player.id} 
@@ -215,7 +226,7 @@ export default function App() {
                 <div className="absolute bottom-[44%] mb-1 flex justify-center pointer-events-none z-30 w-16">
                   {gameState?.gameStage !== 'WAITING' && !player.isRebuyWaiting && player.cards && player.cards.length > 0 && (
                     <div className="relative w-full h-13 flex justify-center">
-                      {isShowdown || isMe ? (
+                      {shouldExposeCard ? (
                         <>
                           <div className="absolute left-0 z-10 shadow-md">
                             {renderCardComponent(player.cards[0], false, 0)}
@@ -309,9 +320,19 @@ export default function App() {
             🎬 ALL-IN SHOWDOWN: 보드 순차 오픈 연출 중...
           </div>
         ) : gameState?.gameStage === 'SHOWDOWN' ? (
-          <div className="col-span-3 py-4 bg-emerald-500/5 rounded-xl text-center text-xs text-emerald-400 border border-emerald-500/10 font-bold tracking-widest animate-pulse uppercase">
-            📊 SHOWDOWN: 경기 결과 및 족보 정산 확인 중...
-          </div>
+          // 💡 [요구사항 반영 가드]: 독점 기권승의 승자에게만 핸드 공개 버튼을 노출하도록 분기 정밀 조정
+          isMyExposeHandRequestTurn ? (
+            <>
+              <div className="col-span-2 py-4 bg-emerald-500/5 rounded-xl text-center text-xs text-emerald-400 border border-emerald-500/10 font-bold tracking-widest animate-pulse uppercase">
+                📊 정산 중: 핸드 공개를 결정할 수 있습니다
+              </div>
+              <button onClick={handleExposeHand} className="bg-gradient-to-b from-yellow-500 to-amber-600 text-black py-3.5 rounded-xl font-black text-xs uppercase shadow-md border-t border-amber-300/30 animate-pulse">핸드 공개</button>
+            </>
+          ) : (
+            <div className="col-span-3 py-4 bg-emerald-500/5 rounded-xl text-center text-xs text-emerald-400 border border-emerald-500/10 font-bold tracking-widest animate-pulse uppercase">
+              📊 SHOWDOWN: 경기 결과 및 족보 정산 확인 중...
+            </div>
+          )
         ) : isMyTurn && !myData?.isRebuyWaiting && myData?.cards?.length > 0 ? (
           <>
             <button onClick={() => handleAction('FOLD')} className="bg-gradient-to-b from-gray-700 to-gray-800 py-3.5 rounded-xl font-bold text-xs uppercase shadow-md">폴드</button>
@@ -348,7 +369,6 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* 💡 [버그 2 갱신]: 스크린샷 10.43.52 결과창에서 리바이인 횟수와 순위표가 증발하던 렌더링 누수 전면 해결 */}
       <AnimatePresence>
         {winnerName && (
           <div className="fixed inset-0 bg-black/95 flex flex-col items-center justify-center p-4 z-50">
