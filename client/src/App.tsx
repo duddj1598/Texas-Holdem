@@ -71,7 +71,6 @@ export default function App() {
     setShowSlider(false);
   };
 
-  // 💡 [수정]: 1번, 2번, 전체오픈 각각 서버에 어떤 카드를 깔지 알려주도록 emit 옵션 추가
   const handleExposeLeft = () => {
     socket.emit('expose_hand', { target: 'left' });
     setExposeLeft(true);
@@ -248,7 +247,11 @@ export default function App() {
             const isDealer = gameState?.dealerIndex === originalIdx;
             const isWinner = isShowdown && gameState?.roundWinnerId === player.id;
 
-            // 💡 [수정]: 서버에서 전파받은 개별 카드(Left/Right) 데이터 매핑
+            // 💡 [버그 수정]: 누락되었던 타이머 변수 3줄 완벽 복구
+            const radius = 34;
+            const circumference = 2 * Math.PI * radius;
+            const strokeDashoffset = circumference - (globalTimer / 15) * circumference;
+
             const myExposed = gameState?.exposedCards?.[player.id] || { left: false, right: false };
             
             const showLeftCard = isShowdown ? (isWinner || myExposed.left || (isMe && exposeLeft)) : isMe;
