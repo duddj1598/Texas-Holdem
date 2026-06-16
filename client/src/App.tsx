@@ -61,7 +61,6 @@ export default function App() {
     setShowSlider(false);
   };
 
-  // 💡 [신규 함수]: 승자가 독점 기권승 시 핸드 공개 버튼을 눌렀을 때 호출되는 RPC
   const handleExposeHand = () => {
     socket.emit('expose_hand');
   };
@@ -106,6 +105,7 @@ export default function App() {
     const isShowdown = gameState?.gameStage === 'SHOWDOWN';
     const isPartOfWinningHand = checkCardInWinningCombo(card);
 
+    // 💡 [타입 오류 원천 차단]: 사용하지 않는 스코프 변수는 삭제하고, 컴파일러가 인식할 수 있는 무결한 하이라이트 조건식 분기 확립
     const applyGrayscale = isShowdown && !isPartOfWinningHand;
     const applyHighlight = isShowdown && isPartOfWinningHand;
 
@@ -139,7 +139,6 @@ export default function App() {
   const orderedPlayers = getOrderedPlayers();
   const myData = gameState?.players.find((p: any) => p.id === socket.id);
   const currentTurnPlayer = gameState?.players[gameState?.currentTurnIndex];
-  
   const isMyTurn = currentTurnPlayer?.id === socket.id && !gameState?.isAnimatingBoard && gameState?.gameStage !== 'SHOWDOWN';
   
   const currentHighest = gameState?.highestBet || 0;
@@ -147,7 +146,6 @@ export default function App() {
   const callCost = currentHighest - myCurrentBet;
   const isShowdown = gameState?.gameStage === 'SHOWDOWN';
 
-  // 💡 [신규 상태 연산]: 내가 현재 독점 기권승의 승자이고, 아직 핸드를 공개하지 않았을 때 버튼을 활성화
   const isMyExposeHandRequestTurn = isShowdown && gameState?.exposeHandRequesterId === socket.id && !gameState?.isHandExposed;
 
   return (
@@ -210,11 +208,8 @@ export default function App() {
             const circumference = 2 * Math.PI * radius;
             const strokeDashoffset = circumference - (globalTimer / 15) * circumference;
 
-            // 💡 [요구사항 반영 연출]: 독점 기권승의 승자가 핸드를 공개한 경우에만 카드 부채꼴 오픈
             const isHandExposedByServer = isShowdown && gameState?.isHandExposed && gameState?.exposeHandRequesterId === player.id;
             const shouldExposeCard = isShowdown || isMe || isHandExposedByServer;
-            const grayscaleCondition = isShowdown && !isPartOfWinningHand;
-            const highlightCondition = isShowdown && isPartOfWinningHand;
 
             return (
               <div 
@@ -320,7 +315,6 @@ export default function App() {
             🎬 ALL-IN SHOWDOWN: 보드 순차 오픈 연출 중...
           </div>
         ) : gameState?.gameStage === 'SHOWDOWN' ? (
-          // 💡 [요구사항 반영 가드]: 독점 기권승의 승자에게만 핸드 공개 버튼을 노출하도록 분기 정밀 조정
           isMyExposeHandRequestTurn ? (
             <>
               <div className="col-span-2 py-4 bg-emerald-500/5 rounded-xl text-center text-xs text-emerald-400 border border-emerald-500/10 font-bold tracking-widest animate-pulse uppercase">
