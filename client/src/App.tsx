@@ -28,7 +28,6 @@ export default function App() {
   const [showSlider, setShowSlider] = useState(false);
   const [globalTimer, setGlobalTimer] = useState<number>(15);
 
-  // 개별 카드 로컬 오픈 상태 변수
   const [exposeLeft, setExposeLeft] = useState(false);
   const [exposeRight, setExposeRight] = useState(false);
 
@@ -230,11 +229,11 @@ export default function App() {
             const circumference = 2 * Math.PI * radius;
             const strokeDashoffset = circumference - (globalTimer / 15) * circumference;
 
-            // 💡 [오픈 권한 대개혁]: 서버 측 전파 리스트(`exposedPlayerIds`) 매핑 결합
             const isHandExposedByServer = gameState?.exposedPlayerIds?.includes(player.id);
             
-            const showLeftCard = isShowdown ? (isWinner || isMe || isHandExposedByServer || (isMe && exposeLeft)) : isMe;
-            const showRightCard = isShowdown ? (isWinner || isMe || isHandExposedByServer || (isMe && exposeRight)) : isMe;
+            // 💡 [렌더링 룰 보강]: 내가 최종 승리자이거나, 내가 오픈 버튼을 누른 장이거나, 서버 전파 리스트에 박혀야 앞면 활성화
+            const showLeftCard = isShowdown ? (isWinner || isHandExposedByServer || (isMe && exposeLeft)) : isMe;
+            const showRightCard = isShowdown ? (isWinner || isHandExposedByServer || (isMe && exposeRight)) : isMe;
 
             return (
               <div 
@@ -333,14 +332,12 @@ export default function App() {
         )}
       </div>
 
-      {/* 💡 [WPL 싱크 100% 매핑]: 하단 베팅 바 영역에 스크린샷 4단 분할 패널을 결합 */}
       <div className="w-full bg-[#14151a] p-4 border-t border-white/5 z-20 min-h-[80px] flex items-center justify-center">
         {gameState?.isAnimatingBoard ? (
           <div className="w-full py-4 bg-yellow-500/5 rounded-xl text-center text-xs text-yellow-500 border border-yellow-500/10 font-bold tracking-widest animate-pulse uppercase">
             🎬 ALL-IN SHOWDOWN: 보드 순차 오픈 연출 중...
           </div>
         ) : gameState?.gameStage === 'SHOWDOWN' ? (
-          // 💡 [요구사항 반영]: 정산창 시작 시, 폴드한 사람을 포함해 관전 중이 아닌 카드 보유 유저 전원에게 4버튼 노출
           myData && myData.cards && myData.cards.length > 0 ? (
             <div className="w-full grid grid-cols-4 gap-1.5 bg-[#1c1d24] p-1.5 rounded-xl border border-white/5">
               <button 

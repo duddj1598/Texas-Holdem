@@ -86,8 +86,6 @@ export class TournamentRoom {
   public roundWinnerId: string = ''; 
   public roundWinnerLabel: string = ''; 
   public winningCards: Card[] = []; 
-
-  // 💡 [로직 수정]: 특정 타겟 지정 없이, '누가' 핸드 공개 패킷들을 쐈는지 다중 추적하기 위해 배열 형태로 마이그레이션
   public exposedPlayerIds: string[] = []; 
 
   private blindTimer: NodeJS.Timeout | null = null;
@@ -359,15 +357,18 @@ export class TournamentRoom {
   private moveToNextTurn() {
     const foldedPlayers = this.players.filter(p => p.isFolded);
 
+    // 💡 [실제 룰 동기화 패치]: 1명 빼고 전원 폴드했을 때의 정산 (No Showdown)
     if (foldedPlayers.length === this.players.length - 1) {
       const winner = this.players.find(p => !p.isFolded);
       this.roundWinnerId = winner?.id || '';
       this.roundWinnerLabel = '독점 기권승 🔥';
       this.winningCards = [];
-      if (winner) winner.chips += this.currentPot;
-      this.currentPot = 0;
       
-      this.gameStage = 'SHOWDOWN'; 
+      if (winner) {
+        winner.chips += this.currentPot; // 생존자가 독점 수령
+      }
+      this.currentPot = 0;
+      this.gameStage = 'SHOWDOWN'; // 연출 및 재미용 핸드 오픈 페이즈 개방
 
       if (this.actionTimer) clearInterval(this.actionTimer);
       this.io.to(this.id).emit('room_updated', this.getState());
@@ -405,7 +406,6 @@ export class TournamentRoom {
     this.nextStage();
   }
 
-  // 💡 [오픈 핵심 패치]: 폴드 여부 필터를 삭제하여 FOLD 유저도 전체 브로드캐스팅 가능하도록 개정
   public handleExposeHand(id: string): boolean {
     if (this.gameStage === 'SHOWDOWN' && !this.exposedPlayerIds.includes(id)) {
       this.exposedPlayerIds.push(id); 
@@ -513,10 +513,12 @@ export class TournamentRoom {
     revealStep();
   }
 
+  // 💡 [실제 룰 정밀 개정]: 생존자들끼리만 공정하게 겨루는 진짜 쇼다운 알고리즘
   private determineShowdownWinner() {
     this.gameStage = 'SHOWDOWN';
     if (this.actionTimer) clearInterval(this.actionTimer);
 
+    // 🌟 오직 폴드 안 한 진짜 생존자들만 평가 대상에 매핑 (폴드족보 무효화)
     const contenders = this.players.filter(p => !p.isFolded);
     const evaluatedContenders = contenders.map(p => {
       const evalResult = evaluate7Cards(p.cards, this.communityCards);
@@ -546,6 +548,7 @@ export class TournamentRoom {
         potEligibleUnits.sort((a, b) => b.rank - a.rank);
         const potWinner = potEligibleUnits[0];
         
+        // 생존 승자에게만 안전하게 누적 칩 수여
         potWinner.player.chips += pot.amount;
 
         if (potWinner.rank > absoluteMaxRank) {
