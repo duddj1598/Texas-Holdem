@@ -28,7 +28,6 @@ export default function App() {
   const [showSlider, setShowSlider] = useState(false);
   const [globalTimer, setGlobalTimer] = useState<number>(15);
 
-  // 개별 카드 로컬 오픈 상태 관리
   const [exposeLeft, setExposeLeft] = useState(false);
   const [exposeRight, setExposeRight] = useState(false);
 
@@ -49,7 +48,6 @@ export default function App() {
         setShowRebuy(false);
       }
 
-      // 새로운 핸드가 시작되면 오픈 상태 초기화
       if (data.gameStage === 'PREFLOP' && data.timeLeft === 15) {
         setExposeLeft(false);
         setExposeRight(false);
@@ -73,11 +71,14 @@ export default function App() {
     setShowSlider(false);
   };
 
-  // 💡 [버그 수정]: 서버에 이벤트를 보내는 동시에 로컬 카드 오픈 상태를 강제로 true로 전환합니다.
   const handleExposeHandToServer = () => {
     socket.emit('expose_hand');
     setExposeLeft(true);
     setExposeRight(true);
+  };
+
+  const handleRabbitHunt = () => {
+    socket.emit('request_rabbit_hunt');
   };
 
   const handleDeclareOut = () => {
@@ -193,12 +194,22 @@ export default function App() {
 
           <div className="flex gap-1 justify-center max-w-[260px] absolute top-[44%] z-10">
             {gameState?.communityCards?.map((card: any, i: number) => (
-              <motion.div key={i} initial={{ scale: 0 }} animate={{ scale: 1 }}>
+              <motion.div key={`com-${i}`} initial={{ scale: 0 }} animate={{ scale: 1 }}>
                 {renderCardComponent(card, false, 0)}
               </motion.div>
             ))}
-            {gameState?.gameStage === 'SHOWDOWN' && gameState?.communityCards?.length < 5 && (
-              <div className="w-9 h-13 bg-gray-600/30 rounded-md border border-white/10 flex items-center justify-center opacity-40 text-xs">🐰</div>
+            {/* 💡 [신규 연출]: 서버에서 내려온 래빗헌팅 카드들 렌더링 */}
+            {gameState?.rabbitCards?.map((card: any, i: number) => (
+              <motion.div key={`rab-${i}`} initial={{ scale: 0 }} animate={{ scale: 1 }} className="relative opacity-80">
+                {renderCardComponent(card, false, 0)}
+                <div className="absolute -top-2 -right-2 text-[10px] bg-purple-600 rounded-full w-4 h-4 flex items-center justify-center border border-white/50 z-50 shadow-[0_0_8px_#9333ea]">🐰</div>
+              </motion.div>
+            ))}
+            {/* 안 열린 뒷면 토끼 카드 유지 보정 */}
+            {gameState?.gameStage === 'SHOWDOWN' && ((gameState?.communityCards?.length || 0) + (gameState?.rabbitCards?.length || 0)) < 5 && (
+              Array.from({ length: 5 - ((gameState?.communityCards?.length || 0) + (gameState?.rabbitCards?.length || 0)) }).map((_, i) => (
+                <div key={`empty-${i}`} className="w-9 h-13 bg-gray-600/30 rounded-md border border-white/10 flex items-center justify-center opacity-40 text-xs">🐰</div>
+              ))
             )}
           </div>
 
@@ -234,8 +245,6 @@ export default function App() {
 
             const isHandExposedByServer = gameState?.exposedPlayerIds?.includes(player.id);
             
-            // 💡 [카드 노출 조건문 전면 정정]: 쇼다운 스테이지일 때 카드를 뒤집을지 판별하는 플래그
-            // 승자거나, 서버에 오픈 등록이 되었거나, 내가 개별 버튼을 눌렀을 경우 앞면을 활성화합니다.
             const showLeftCard = isShowdown 
               ? (isWinner || isHandExposedByServer || (isMe && exposeLeft)) 
               : isMe;
@@ -263,11 +272,10 @@ export default function App() {
                         </div>
                       </div>
                       
-                      {!player.isFolded && (
-                        <div className="mt-1 bg-black/80 px-2 py-0.5 rounded text-[9px] text-yellow-400 font-bold tracking-wide shadow-md uppercase">
-                          {getHandLabel(player)}
-                        </div>
-                      )}
+                      {/* 폴드 유저는 카드 아래에 '폴드' 라고 뜹니다 */}
+                      <div className={`mt-1 px-2 py-0.5 rounded text-[9px] font-bold tracking-wide shadow-md uppercase ${player.isFolded ? 'bg-red-900/80 text-red-300' : 'bg-black/80 text-yellow-400'}`}>
+                        {getHandLabel(player)}
+                      </div>
                     </>
                   )}
                 </div>
@@ -350,7 +358,6 @@ export default function App() {
           myData && myData.cards && myData.cards.length > 0 ? (
             <div className="w-full grid grid-cols-4 gap-1.5 bg-[#1c1d24] p-1.5 rounded-xl border border-white/5">
               
-              {/* 💡 개별 카드 1 오픈 기능 보강 */}
               <button 
                 onClick={() => setExposeLeft(true)} 
                 className={`py-3 rounded-lg text-xs font-black border transition-all flex flex-col items-center justify-center leading-tight ${
@@ -361,7 +368,6 @@ export default function App() {
                 <span className="text-yellow-400">{VALUE_LABELS[myData.cards[0]?.value] || myData.cards[0]?.value} 오픈</span>
               </button>
               
-              {/* 💡 개별 카드 2 오픈 기능 보강 */}
               <button 
                 onClick={() => setExposeRight(true)} 
                 className={`py-3 rounded-lg text-xs font-black border transition-all flex flex-col items-center justify-center leading-tight ${
@@ -374,17 +380,26 @@ export default function App() {
               
               <button 
                 onClick={handleExposeHandToServer} 
-                className="py-3 bg-gradient-to-b from-neutral-800 to-neutral-900 border border-white/10 hover:from-neutral-700 hover:to-neutral-800 text-yellow-500 rounded-lg text-xs font-black flex flex-col items-center justify-center leading-tight shadow-md"
+                className="py-3 bg-gradient-to-b from-neutral-800 to-neutral-900 border border-white/10 hover:from-neutral-700 hover:to-neutral-800 text-yellow-500 rounded-lg text-xs font-black flex flex-col items-center justify-center leading-tight shadow-md active:scale-95 transition-all"
               >
                 <span className="text-[10px] opacity-60 block font-mono">전체</span>
                 <span>오픈하기</span>
               </button>
               
+              {/* 💡 [신규 기능]: 래빗헌팅 버튼 활성화 */}
               <button 
-                className="py-3 bg-gradient-to-b from-neutral-700 to-neutral-800 text-gray-400 border border-white/5 rounded-lg text-xs font-black flex items-center justify-center uppercase font-mono tracking-wider cursor-not-allowed opacity-50"
-                disabled
+                onClick={handleRabbitHunt}
+                disabled={((gameState?.communityCards?.length || 0) + (gameState?.rabbitCards?.length || 0)) >= 5}
+                className={`py-3 rounded-lg text-xs font-black flex flex-col items-center justify-center leading-tight shadow-md transition-all ${
+                  ((gameState?.communityCards?.length || 0) + (gameState?.rabbitCards?.length || 0)) >= 5
+                    ? 'bg-neutral-900 border border-white/5 text-gray-600 cursor-not-allowed'
+                    : 'bg-gradient-to-b from-purple-800 to-purple-900 border border-purple-500/50 hover:from-purple-700 hover:to-purple-800 text-purple-200 active:scale-95 shadow-[0_0_15px_rgba(147,51,234,0.3)]'
+                }`}
               >
-                래빗헌팅
+                <span className="text-[10px] opacity-80 block font-mono">보드 확인</span>
+                <span className={((gameState?.communityCards?.length || 0) + (gameState?.rabbitCards?.length || 0)) >= 5 ? 'text-gray-500' : 'text-purple-300'}>
+                  래빗헌팅 🐰
+                </span>
               </button>
             </div>
           ) : (

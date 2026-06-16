@@ -75,6 +75,9 @@ export class TournamentRoom {
   public currentPot: number = 0;
   
   public communityCards: Card[] = [];
+  // 💡 래빗헌팅 결과용 별도 카드 배열
+  public rabbitCards: Card[] = []; 
+  
   public gameStage: 'WAITING' | 'PREFLOP' | 'FLOP' | 'TURN' | 'RIVER' | 'SHOWDOWN' = 'WAITING';
   
   public dealerIndex: number = 0;
@@ -157,6 +160,7 @@ export class TournamentRoom {
     this.gameStage = 'WAITING';
     this.blindLevel = 1; 
     this.communityCards = [];
+    this.rabbitCards = [];
     this.sidePots = [];
     this.roundWinnerId = '';
     this.roundWinnerLabel = '';
@@ -192,6 +196,7 @@ export class TournamentRoom {
     this.winningCards = []; 
     this.isAnimatingBoard = false;
     this.exposedPlayerIds = [];
+    this.rabbitCards = [];
 
     this.players.forEach(p => {
       if (!p.isRebuyWaiting && p.chips > 0) {
@@ -357,7 +362,6 @@ export class TournamentRoom {
   private moveToNextTurn() {
     const foldedPlayers = this.players.filter(p => p.isFolded);
 
-    // 💡 [실제 룰 동기화 패치]: 1명 빼고 전원 폴드했을 때의 정산 (No Showdown)
     if (foldedPlayers.length === this.players.length - 1) {
       const winner = this.players.find(p => !p.isFolded);
       this.roundWinnerId = winner?.id || '';
@@ -365,10 +369,10 @@ export class TournamentRoom {
       this.winningCards = [];
       
       if (winner) {
-        winner.chips += this.currentPot; // 생존자가 독점 수령
+        winner.chips += this.currentPot; 
       }
       this.currentPot = 0;
-      this.gameStage = 'SHOWDOWN'; // 연출 및 재미용 핸드 오픈 페이즈 개방
+      this.gameStage = 'SHOWDOWN'; 
 
       if (this.actionTimer) clearInterval(this.actionTimer);
       this.io.to(this.id).emit('room_updated', this.getState());
@@ -406,10 +410,24 @@ export class TournamentRoom {
     this.nextStage();
   }
 
+  // 💡 상대가 볼 수 있게끔 오픈한 유저 리스트 브로드캐스팅
   public handleExposeHand(id: string): boolean {
     if (this.gameStage === 'SHOWDOWN' && !this.exposedPlayerIds.includes(id)) {
       this.exposedPlayerIds.push(id); 
       this.io.to(this.id).emit('room_updated', this.getState()); 
+      return true;
+    }
+    return false;
+  }
+
+  // 💡 [래빗헌팅 기능 추가]: 남은 보드 카드 전부 오픈
+  public handleRabbitHunt(): boolean {
+    if (this.gameStage === 'SHOWDOWN' && this.communityCards.length < 5 && this.rabbitCards.length === 0) {
+      const cardsNeeded = 5 - this.communityCards.length;
+      for (let i = 0; i < cardsNeeded; i++) {
+        this.rabbitCards.push(this.deck.deal());
+      }
+      this.io.to(this.id).emit('room_updated', this.getState());
       return true;
     }
     return false;
@@ -513,12 +531,10 @@ export class TournamentRoom {
     revealStep();
   }
 
-  // 💡 [실제 룰 정밀 개정]: 생존자들끼리만 공정하게 겨루는 진짜 쇼다운 알고리즘
   private determineShowdownWinner() {
     this.gameStage = 'SHOWDOWN';
     if (this.actionTimer) clearInterval(this.actionTimer);
 
-    // 🌟 오직 폴드 안 한 진짜 생존자들만 평가 대상에 매핑 (폴드족보 무효화)
     const contenders = this.players.filter(p => !p.isFolded);
     const evaluatedContenders = contenders.map(p => {
       const evalResult = evaluate7Cards(p.cards, this.communityCards);
@@ -548,7 +564,6 @@ export class TournamentRoom {
         potEligibleUnits.sort((a, b) => b.rank - a.rank);
         const potWinner = potEligibleUnits[0];
         
-        // 생존 승자에게만 안전하게 누적 칩 수여
         potWinner.player.chips += pot.amount;
 
         if (potWinner.rank > absoluteMaxRank) {
@@ -628,6 +643,7 @@ export class TournamentRoom {
       pot: this.currentPot,
       gameStage: this.gameStage,
       communityCards: this.communityCards.filter(c => c && c.suit && c.value),
+      rabbitCards: this.rabbitCards.filter(c => c && c.suit && c.value), // 💡 래빗헌팅 카드 동기화
       dealerIndex: this.dealerIndex,
       currentTurnIndex: this.currentTurnIndex,
       hostId: this.hostId,
