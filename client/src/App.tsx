@@ -105,7 +105,6 @@ export default function App() {
     const isShowdown = gameState?.gameStage === 'SHOWDOWN';
     const isPartOfWinningHand = checkCardInWinningCombo(card);
 
-    // 💡 [타입 오류 원천 차단]: 사용하지 않는 스코프 변수는 삭제하고, 컴파일러가 인식할 수 있는 무결한 하이라이트 조건식 분기 확립
     const applyGrayscale = isShowdown && !isPartOfWinningHand;
     const applyHighlight = isShowdown && isPartOfWinningHand;
 
@@ -309,36 +308,46 @@ export default function App() {
         )}
       </div>
 
-      <div className="w-full bg-[#14151a] p-4 border-t border-white/5 grid grid-cols-3 gap-2 z-20">
+      <div className="w-full bg-[#14151a] p-4 border-t border-white/5 z-20">
         {gameState?.isAnimatingBoard ? (
-          <div className="col-span-3 py-4 bg-yellow-500/5 rounded-xl text-center text-xs text-yellow-500 border border-yellow-500/10 font-bold tracking-widest animate-pulse uppercase">
+          <div className="w-full py-4 bg-yellow-500/5 rounded-xl text-center text-xs text-yellow-500 border border-yellow-500/10 font-bold tracking-widest animate-pulse uppercase">
             🎬 ALL-IN SHOWDOWN: 보드 순차 오픈 연출 중...
           </div>
         ) : gameState?.gameStage === 'SHOWDOWN' ? (
+          // 💡 [요구사항 반영]: 전달받은 스크린샷 템플릿 형태로 정산 바 레이아웃 배치 전면 개편
           isMyExposeHandRequestTurn ? (
-            <>
-              <div className="col-span-2 py-4 bg-emerald-500/5 rounded-xl text-center text-xs text-emerald-400 border border-emerald-500/10 font-bold tracking-widest animate-pulse uppercase">
+            <div className="w-full flex flex-col gap-2">
+              <div className="w-full py-2.5 bg-emerald-500/10 rounded-xl text-center text-xs text-emerald-400 border border-emerald-500/20 font-bold tracking-wide animate-pulse">
                 📊 정산 중: 핸드 공개를 결정할 수 있습니다
               </div>
-              <button onClick={handleExposeHand} className="bg-gradient-to-b from-yellow-500 to-amber-600 text-black py-3.5 rounded-xl font-black text-xs uppercase shadow-md border-t border-amber-300/30 animate-pulse">핸드 공개</button>
-            </>
+              <button 
+                onClick={handleExposeHand} 
+                className="w-full bg-gradient-to-r from-yellow-400 via-amber-500 to-yellow-600 text-black py-3.5 rounded-xl font-black text-sm uppercase shadow-[0_0_20px_rgba(234,179,8,0.4)] border-t border-white/20 active:scale-[0.99] transition-transform font-sans tracking-widest"
+              >
+                카드 오픈 (핸드 공개하기)
+              </button>
+            </div>
           ) : (
-            <div className="col-span-3 py-4 bg-emerald-500/5 rounded-xl text-center text-xs text-emerald-400 border border-emerald-500/10 font-bold tracking-widest animate-pulse uppercase">
+            <div className="w-full py-4 bg-emerald-500/5 rounded-xl text-center text-xs text-emerald-400 border border-emerald-500/10 font-bold tracking-widest animate-pulse uppercase">
               📊 SHOWDOWN: 경기 결과 및 족보 정산 확인 중...
             </div>
           )
         ) : isMyTurn && !myData?.isRebuyWaiting && myData?.cards?.length > 0 ? (
-          <>
-            <button onClick={() => handleAction('FOLD')} className="bg-gradient-to-b from-gray-700 to-gray-800 py-3.5 rounded-xl font-bold text-xs uppercase shadow-md">폴드</button>
-            {callCost === 0 ? (
+          // 💡 [요구사항 반영]: 체크 가능 상황(callCost === 0)일 때 폴드 옵션을 원천 제거하여 오작동 방지
+          callCost === 0 ? (
+            <div className="grid grid-cols-2 gap-2">
               <button onClick={() => handleAction('CHECK')} className="bg-gradient-to-b from-sky-600 to-sky-700 py-3.5 rounded-xl font-bold text-xs uppercase shadow-md border-t border-sky-400/20">체크</button>
-            ) : (
+              <button onClick={() => { setRaiseValue(currentHighest + (gameState?.blind?.bb || 200)); setShowSlider(!showSlider); }} className="bg-gradient-to-b from-amber-500 to-amber-600 text-black py-3.5 rounded-xl font-black text-xs uppercase shadow-md border-t border-amber-300/30">레이즈</button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-2">
+              <button onClick={() => handleAction('FOLD')} className="bg-gradient-to-b from-gray-700 to-gray-800 py-3.5 rounded-xl font-bold text-xs uppercase shadow-md">폴드</button>
               <button onClick={() => handleAction('CALL')} className="bg-gradient-to-b from-emerald-600 to-emerald-700 py-3.5 rounded-xl font-bold text-xs uppercase shadow-md border-t border-emerald-400/20">콜 ({callCost.toLocaleString()})</button>
-            )}
-            <button onClick={() => { setRaiseValue(currentHighest + (gameState?.blind?.bb || 200)); setShowSlider(!showSlider); }} className="bg-gradient-to-b from-amber-500 to-amber-600 text-black py-3.5 rounded-xl font-black text-xs uppercase shadow-md border-t border-amber-300/30">레이즈</button>
-          </>
+              <button onClick={() => { setRaiseValue(currentHighest + (gameState?.blind?.bb || 200)); setShowSlider(!showSlider); }} className="bg-gradient-to-b from-amber-500 to-amber-600 text-black py-3.5 rounded-xl font-black text-xs uppercase shadow-md border-t border-amber-300/30">레이즈</button>
+            </div>
+          )
         ) : (
-          <div className="col-span-3 py-4 bg-black/20 rounded-xl text-center text-xs text-gray-400 font-bold tracking-wide animate-pulse">
+          <div className="w-full py-4 bg-black/20 rounded-xl text-center text-xs text-gray-400 font-bold tracking-wide animate-pulse">
             {myData?.cards?.length === 0 && gameState?.gameStage !== 'WAITING' 
               ? '👀 다음 판 시작 시 참가합니다 (현재 판 관전 중)' 
               : myData?.isRebuyWaiting 

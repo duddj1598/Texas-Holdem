@@ -94,7 +94,6 @@ export class TournamentRoom {
   public roundWinnerLabel: string = ''; 
   public winningCards: Card[] = []; 
 
-  // 💡 [신규 상태]: 독점 기권승 시 핸드 공개를 요청한 유저 ID와 공개 여부 플래그
   public exposeHandRequesterId: string = ''; 
   public isHandExposed: boolean = false; 
 
@@ -174,7 +173,6 @@ export class TournamentRoom {
     this.isAnimatingBoard = false;
     this.currentPot = 0;
     this.highestBet = 0;
-    // 💡 [상태 초기화]: 로비 리셋 시 핸드 공개 상태 초기화
     this.exposeHandRequesterId = '';
     this.isHandExposed = false;
     
@@ -203,7 +201,6 @@ export class TournamentRoom {
     this.roundWinnerLabel = '';
     this.winningCards = []; 
     this.isAnimatingBoard = false;
-    // 💡 [상태 초기화]: 새 핸드 시작 시 핸드 공개 상태 초기화
     this.exposeHandRequesterId = '';
     this.isHandExposed = false;
 
@@ -371,28 +368,23 @@ export class TournamentRoom {
   private moveToNextTurn() {
     const foldedPlayers = this.players.filter(p => p.isFolded);
 
-    // 💡 [요구사항 반영]: 독점 기권승 시 승자 연출 타임에 핸드 공개 요청을 받을 수 있도록 분기 수정
     if (foldedPlayers.length === this.players.length - 1) {
       const winner = this.players.find(p => !p.isFolded);
       this.roundWinnerId = winner?.id || '';
-      // 💡 [요구사항]: 독점 기권승 시 하단 조작 바 잠금 메시지를 "승리!"로 변경
       this.roundWinnerLabel = '독점 기권승 🔥';
       this.winningCards = [];
       if (winner) winner.chips += this.currentPot;
       this.currentPot = 0;
       
-      // 💡 [상태 변경]: 독점 기권승 연출 페이즈(`SHOWDOWN` 상태를 임시로 빌려 씀)
       this.gameStage = 'SHOWDOWN'; 
-      // 독점 기권승 시 핸드 공개를 결정할 수 있는 기회를 승자에게 제공
       this.exposeHandRequesterId = winner?.id || '';
-      this.isHandExposed = false; // 아직 공개 안 함
+      this.isHandExposed = false; 
 
       if (this.actionTimer) clearInterval(this.actionTimer);
       this.io.to(this.id).emit('room_updated', this.getState());
 
-      // 💡 [타임아웃]: 7초간 핸드 공개 결정을 기다리고 정산 수행 (기존 `determineShowdownWinner`의 딜레이와 동일)
       setTimeout(() => {
-        this.gameStage = 'PREFLOP'; // 임시로 PREFLOP으로 돌려 Rebuy 대기열 활성화
+        this.gameStage = 'PREFLOP'; 
         this.wrapUpHand();
       }, 7000);
       return;
@@ -424,12 +416,11 @@ export class TournamentRoom {
     this.nextStage();
   }
 
-  // 💡 [신규 함수]: 승자가 독점 기권승 시 핸드 공개 버튼을 눌렀을 때 호출되는 RPC
   public handleExposeHand(id: string): boolean {
     if (this.gameStage === 'SHOWDOWN' && this.exposeHandRequesterId === id && !this.isHandExposed) {
-      this.isHandExposed = true; // 공개 완료 상태로 변경
+      this.isHandExposed = true; 
       console.log(`💡 [EXPOSE_HAND] 플레이어가 핸드를 공개했습니다 (ID: ${id})`);
-      this.io.to(this.id).emit('room_updated', this.getState()); // 공개된 상태 방송
+      this.io.to(this.id).emit('room_updated', this.getState()); 
       return true;
     }
     return false;
@@ -465,7 +456,11 @@ export class TournamentRoom {
   }
 
   private nextStage() {
-    this.players.forEach(p => { if(!p.isFolded) p.currentBet = 0; p.hasActed = p.isFolded; });
+    // 💡 [버그 완벽 수정]: 다음 스트리트 진입 시 모든 유저의 로컬 베팅 값을 완벽하게 동기화하고 누수 차단
+    this.players.forEach(p => { 
+      p.currentBet = 0; 
+      p.hasActed = p.isFolded || p.isAllIn || p.isRebuyWaiting; 
+    });
     this.highestBet = 0;
 
     const nonAllInActive = this.players.filter(p => !p.isFolded && !p.isAllIn);
@@ -587,6 +582,10 @@ export class TournamentRoom {
     }, 7000);
   }
 
+  private updateStateAndBroadcast() {
+    this.io.to(this.id).emit('room_updated', this.getState());
+  }
+
   private wrapUpHand() {
     this.players.forEach(p => {
       if (p.chips === 0 && p.buyInCount < 3) {
@@ -609,7 +608,7 @@ export class TournamentRoom {
       player.isRebuyWaiting = false; 
       
       const anyoneLeft = this.players.some(p => p.isRebuyWaiting);
-      if (!anyoneLeft && this.gameStage === 'WAITING') { //WAINTG 상태일때만 시작하도록 변경
+      if (!anyoneLeft && this.gameStage === 'WAITING') { 
         this.startNewHand();
       } else {
         this.io.to(this.id).emit('room_updated', this.getState());
@@ -652,7 +651,6 @@ export class TournamentRoom {
       roundWinnerLabel: this.roundWinnerLabel, 
       winningCards: this.winningCards, 
       isAnimatingBoard: this.isAnimatingBoard, 
-      // 💡 [신규 상태]: RPC 상태 동기화 추가
       exposeHandRequesterId: this.exposeHandRequesterId,
       isHandExposed: this.isHandExposed,
       players: this.players.map(p => ({
