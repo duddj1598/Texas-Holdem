@@ -26,6 +26,10 @@ export default function App() {
   const [showSlider, setShowSlider] = useState(false);
   const [globalTimer, setGlobalTimer] = useState<number>(15);
 
+  // 💡 WPL 스타일 개별 카드 오픈 상태 관리를 위한 프론트 로컬 상태값
+  const [exposeLeft, setExposeLeft] = useState(false);
+  const [exposeRight, setExposeRight] = useState(false);
+
   useEffect(() => {
     const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:4000';
     socket = io(SERVER_URL, {
@@ -41,6 +45,12 @@ export default function App() {
         setShowRebuy(true);
       } else {
         setShowRebuy(false);
+      }
+
+      // 새 판이 시작되면 오픈 상태 초기화
+      if (data.gameStage === 'PREFLOP' && data.timeLeft === 15) {
+        setExposeLeft(false);
+        setExposeRight(false);
       }
     });
 
@@ -61,8 +71,11 @@ export default function App() {
     setShowSlider(false);
   };
 
-  const handleExposeHand = () => {
+  // 💡 서버에 전체 오픈 패킷 브로드캐스팅
+  const handleExposeHandToServer = () => {
     socket.emit('expose_hand');
+    setExposeLeft(true);
+    setExposeRight(true);
   };
 
   const handleDeclareOut = () => {
@@ -86,6 +99,18 @@ export default function App() {
       const winningKey = `${String(wCard.suit)}${String(wCard.value)}`.trim().toUpperCase();
       return targetKey === winningKey;
     });
+  };
+
+  // 한글 카드 족보 번역 맵
+  const getHandLabel = (player: any) => {
+    if (!player || !player.cards || player.cards.length === 0) return '';
+    if (player.isFolded) return '폴드';
+    
+    // 임시 하이카드/원페어 표시 (실제 서버 계측 데이터 우선 매핑)
+    if (gameState?.gameStage === 'SHOWDOWN' && gameState?.roundWinnerId === player.id) {
+      return gameState.roundWinnerLabel.replace('🏆', '').replace('🔥', '').replace('🏠', '').trim();
+    }
+    return '하이카드';
   };
 
   const renderCardComponent = (card: any, isHidden: boolean, indexOffset: number = 0) => {
@@ -145,7 +170,7 @@ export default function App() {
   const callCost = currentHighest - myCurrentBet;
   const isShowdown = gameState?.gameStage === 'SHOWDOWN';
 
-  const isMyExposeHandRequestTurn = isShowdown && gameState?.exposeHandRequesterId === socket.id && !gameState?.isHandExposed;
+  const isMyExposeHandRequestTurn = isShowdown && gameState?.exposeHandRequesterId === socket.id;
 
   return (
     <div className="w-full h-screen bg-[#0c0d11] flex flex-col justify-between overflow-hidden text-white relative font-sans select-none">
@@ -175,6 +200,10 @@ export default function App() {
                 {renderCardComponent(card, false, 0)}
               </motion.div>
             ))}
+            {/* 💡 기권승으로 리버 카드가 안 열렸을 때 토끼 뒷면 패널 채워넣기 연출 */}
+            {gameState?.gameStage === 'SHOWDOWN' && gameState?.communityCards?.length < 5 && (
+              <div className="w-9 h-13 bg-gray-600/30 rounded-md border border-white/10 flex items-center justify-center opacity-40 text-xs">🐰</div>
+            )}
           </div>
 
           <AnimatePresence>
@@ -209,8 +238,9 @@ export default function App() {
 
             const isHandExposedByServer = isShowdown && gameState?.isHandExposed && gameState?.exposeHandRequesterId === player.id;
             
-            // 💡 [버그 원천 해결 핵심 가드]: 해당 유저가 'FOLD'를 선언한 상태라면 쇼다운 연출 타임이어도 카드를 절대 보여주지 않음 (정통 홀덤 머크 룰 완벽 반영)
-            const shouldExposeCard = !player.isFolded && (isShowdown || isMe || isHandExposedByServer);
+            // 💡 내 화면 로컬 카드 드로우 기믹 결합
+            const showLeftCard = isShowdown ? (!player.isFolded && (isWinner || isMe || isHandExposedByServer || (isMe && exposeLeft))) : isMe;
+            const showRightCard = isShowdown ? (!player.isFolded && (isWinner || isMe || isHandExposedByServer || (isMe && exposeRight))) : isMe;
 
             return (
               <div 
@@ -219,28 +249,43 @@ export default function App() {
                 style={{ top: SEAT_POSITIONS[idx]?.top, left: SEAT_POSITIONS[idx]?.left }}
               >
                 
-                <div className="absolute bottom-[44%] mb-1 flex justify-center pointer-events-none z-30 w-16">
+                {/* 카드 레이아웃 컨테이너 */}
+                <div className="absolute bottom-[44%] mb-1 flex flex-col items-center justify-center pointer-events-none z-30 w-24">
                   {gameState?.gameStage !== 'WAITING' && !player.isRebuyWaiting && player.cards && player.cards.length > 0 && (
-                    <div className="relative w-full h-13 flex justify-center">
-                      {shouldExposeCard ? (
-                        <>
-                          <div className="absolute left-0 z-10 shadow-md">
-                            {renderCardComponent(player.cards[0], false, 0)}
-                          </div>
-                          <div className="absolute left-4 z-20 shadow-xl">
-                            {renderCardComponent(player.cards[1], false, 1)}
-                          </div>
-                        </>
-                      ) : (
-                        // 💡 내가 폴드를 했거나 타인이 폴드해서 가려진 상태면 무조건 카드 뒷면 처리
-                        <>
-                          <div className="absolute left-0 z-10 shadow-md">{renderCardComponent(null, true, 0)}</div>
-                          <div className="absolute left-4 z-20 shadow-xl">{renderCardComponent(null, true, 1)}</div>
-                        </>
+                    <>
+                      <div className="relative w-full h-13 flex justify-center">
+                        <div className="absolute left-1 z-10 shadow-md">
+                          {renderCardComponent(player.cards[0], !showLeftCard, 0)}
+                        </div>
+                        <div className="absolute left-6 z-20 shadow-xl">
+                          {renderCardComponent(player.cards[1], !showRightCard, 1)}
+                        </div>
+                      </div>
+                      
+                      {/* 💡 [WPL 씽크 100%]: 내 아바타 위 혹은 카드 밑에 현재 족보 표시 안내 (예: 하이카드, 원페어) */}
+                      {!player.isFolded && (
+                        <div className="mt-1 bg-black/80 px-2 py-0.5 rounded text-[9px] text-yellow-400 font-bold tracking-wide shadow-md uppercase">
+                          {getHandLabel(player)}
+                        </div>
                       )}
-                    </div>
+                    </>
                   )}
                 </div>
+
+                {/* 💡 [WPL 씽크 100% 핵심 수정]: 내 좌석(0번) 정중앙 바로 밑에 스크린샷과 똑같은 슬롯형 개별 카드 오픈 창 배치 */}
+                {isMe && isMyExposeHandRequestTurn && (
+                  <div className="absolute top-[110%] w-48 flex justify-center gap-1 z-40 bg-black/90 p-1 rounded-lg border border-gray-800 shadow-2xl scale-90">
+                    <button onClick={() => setExposeLeft(true)} className={`flex-1 py-1.5 rounded text-[10px] font-bold border transition-all ${exposeLeft ? 'bg-gray-800 text-gray-500 border-transparent' : 'bg-neutral-800 hover:bg-neutral-700 text-white border-white/10'}`}>
+                      {valueLabels[player.cards[0]?.value] || player.cards[0]?.value} 오픈
+                    </button>
+                    <button onClick={() => setExposeRight(true)} className={`flex-1 py-1.5 rounded text-[10px] font-bold border transition-all ${exposeRight ? 'bg-gray-800 text-gray-500 border-transparent' : 'bg-neutral-800 hover:bg-neutral-700 text-white border-white/10'}`}>
+                      {valueLabels[player.cards[1]?.value] || player.cards[1]?.value} 오픈
+                    </button>
+                    <button onClick={handleExposeHandToServer} className="flex-1 py-1.5 bg-gradient-to-b from-yellow-500 to-amber-600 text-black rounded text-[10px] font-black shadow-md border-t border-white/20">
+                      전체오픈
+                    </button>
+                  </div>
+                )}
 
                 <div className="relative w-18 h-18 rounded-full flex items-center justify-center shadow-xl mt-5">
                   {isTurn && (
@@ -317,23 +362,9 @@ export default function App() {
             🎬 ALL-IN SHOWDOWN: 보드 순차 오픈 연출 중...
           </div>
         ) : gameState?.gameStage === 'SHOWDOWN' ? (
-          isMyExposeHandRequestTurn ? (
-            <div className="w-full flex flex-col gap-2">
-              <div className="w-full py-2.5 bg-emerald-500/10 rounded-xl text-center text-xs text-emerald-400 border border-emerald-500/20 font-bold tracking-wide animate-pulse">
-                📊 정산 중: 핸드 공개를 결정할 수 있습니다
-              </div>
-              <button 
-                onClick={handleExposeHand} 
-                className="w-full bg-gradient-to-r from-yellow-400 via-amber-500 to-yellow-600 text-black py-3.5 rounded-xl font-black text-sm uppercase shadow-[0_0_20px_rgba(234,179,8,0.4)] border-t border-white/20 active:scale-[0.99] transition-transform font-sans tracking-widest"
-              >
-                카드 오픈 (핸드 공개하기)
-              </button>
-            </div>
-          ) : (
-            <div className="w-full py-4 bg-emerald-500/5 rounded-xl text-center text-xs text-emerald-400 border border-emerald-500/10 font-bold tracking-widest animate-pulse uppercase">
-              📊 SHOWDOWN: 경기 결과 및 족보 정산 확인 중...
-            </div>
-          )
+          <div className="w-full py-4 bg-emerald-500/5 rounded-xl text-center text-xs text-emerald-400 border border-emerald-500/10 font-bold tracking-widest animate-pulse uppercase">
+            {isMyExposeHandRequestTurn ? '🏆 기권승! 카드 오픈 메뉴가 내 좌석 하단에 활성화되었습니다.' : '📊 SHOWDOWN: 경기 결과 및 족보 정산 확인 중...'}
+          </div>
         ) : isMyTurn && !myData?.isRebuyWaiting && myData?.cards?.length > 0 ? (
           callCost === 0 ? (
             <div className="grid grid-cols-2 gap-2">
