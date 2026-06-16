@@ -28,6 +28,7 @@ export default function App() {
   const [showSlider, setShowSlider] = useState(false);
   const [globalTimer, setGlobalTimer] = useState<number>(15);
 
+  // 개별 카드 로컬 오픈 상태 관리
   const [exposeLeft, setExposeLeft] = useState(false);
   const [exposeRight, setExposeRight] = useState(false);
 
@@ -48,6 +49,7 @@ export default function App() {
         setShowRebuy(false);
       }
 
+      // 새로운 핸드가 시작되면 오픈 상태 초기화
       if (data.gameStage === 'PREFLOP' && data.timeLeft === 15) {
         setExposeLeft(false);
         setExposeRight(false);
@@ -71,6 +73,7 @@ export default function App() {
     setShowSlider(false);
   };
 
+  // 💡 [버그 수정]: 서버에 이벤트를 보내는 동시에 로컬 카드 오픈 상태를 강제로 true로 전환합니다.
   const handleExposeHandToServer = () => {
     socket.emit('expose_hand');
     setExposeLeft(true);
@@ -231,9 +234,15 @@ export default function App() {
 
             const isHandExposedByServer = gameState?.exposedPlayerIds?.includes(player.id);
             
-            // 💡 [렌더링 룰 보강]: 내가 최종 승리자이거나, 내가 오픈 버튼을 누른 장이거나, 서버 전파 리스트에 박혀야 앞면 활성화
-            const showLeftCard = isShowdown ? (isWinner || isHandExposedByServer || (isMe && exposeLeft)) : isMe;
-            const showRightCard = isShowdown ? (isWinner || isHandExposedByServer || (isMe && exposeRight)) : isMe;
+            // 💡 [카드 노출 조건문 전면 정정]: 쇼다운 스테이지일 때 카드를 뒤집을지 판별하는 플래그
+            // 승자거나, 서버에 오픈 등록이 되었거나, 내가 개별 버튼을 눌렀을 경우 앞면을 활성화합니다.
+            const showLeftCard = isShowdown 
+              ? (isWinner || isHandExposedByServer || (isMe && exposeLeft)) 
+              : isMe;
+              
+            const showRightCard = isShowdown 
+              ? (isWinner || isHandExposedByServer || (isMe && exposeRight)) 
+              : isMe;
 
             return (
               <div 
@@ -340,6 +349,8 @@ export default function App() {
         ) : gameState?.gameStage === 'SHOWDOWN' ? (
           myData && myData.cards && myData.cards.length > 0 ? (
             <div className="w-full grid grid-cols-4 gap-1.5 bg-[#1c1d24] p-1.5 rounded-xl border border-white/5">
+              
+              {/* 💡 개별 카드 1 오픈 기능 보강 */}
               <button 
                 onClick={() => setExposeLeft(true)} 
                 className={`py-3 rounded-lg text-xs font-black border transition-all flex flex-col items-center justify-center leading-tight ${
@@ -350,6 +361,7 @@ export default function App() {
                 <span className="text-yellow-400">{VALUE_LABELS[myData.cards[0]?.value] || myData.cards[0]?.value} 오픈</span>
               </button>
               
+              {/* 💡 개별 카드 2 오픈 기능 보강 */}
               <button 
                 onClick={() => setExposeRight(true)} 
                 className={`py-3 rounded-lg text-xs font-black border transition-all flex flex-col items-center justify-center leading-tight ${
