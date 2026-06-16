@@ -13,6 +13,9 @@ const SEAT_POSITIONS = [
   { top: '65%', left: '85%' }, 
 ];
 
+// 💡 [컴파일 에러 해결]: 어디서든 안전하게 파싱할 수 있도록 객체 정의를 최상단 전역 스코프로 마이그레이션
+const VALUE_LABELS: any = { 11: 'J', 12: 'Q', 13: 'K', 14: 'A' };
+
 let socket: Socket;
 
 export default function App() {
@@ -26,7 +29,6 @@ export default function App() {
   const [showSlider, setShowSlider] = useState(false);
   const [globalTimer, setGlobalTimer] = useState<number>(15);
 
-  // 💡 WPL 스타일 개별 카드 오픈 상태 관리를 위한 프론트 로컬 상태값
   const [exposeLeft, setExposeLeft] = useState(false);
   const [exposeRight, setExposeRight] = useState(false);
 
@@ -47,7 +49,6 @@ export default function App() {
         setShowRebuy(false);
       }
 
-      // 새 판이 시작되면 오픈 상태 초기화
       if (data.gameStage === 'PREFLOP' && data.timeLeft === 15) {
         setExposeLeft(false);
         setExposeRight(false);
@@ -71,7 +72,6 @@ export default function App() {
     setShowSlider(false);
   };
 
-  // 💡 서버에 전체 오픈 패킷 브로드캐스팅
   const handleExposeHandToServer = () => {
     socket.emit('expose_hand');
     setExposeLeft(true);
@@ -101,12 +101,10 @@ export default function App() {
     });
   };
 
-  // 한글 카드 족보 번역 맵
   const getHandLabel = (player: any) => {
     if (!player || !player.cards || player.cards.length === 0) return '';
     if (player.isFolded) return '폴드';
     
-    // 임시 하이카드/원페어 표시 (실제 서버 계측 데이터 우선 매핑)
     if (gameState?.gameStage === 'SHOWDOWN' && gameState?.roundWinnerId === player.id) {
       return gameState.roundWinnerLabel.replace('🏆', '').replace('🔥', '').replace('🏠', '').trim();
     }
@@ -124,8 +122,7 @@ export default function App() {
 
     const suitSymbols: any = { H: '♥', D: '◆', C: '♣', S: '♠' };
     const suitColors: any = { H: 'text-red-500', D: 'text-sky-400', C: 'text-green-400', S: 'text-slate-900' }; 
-    const valueLabels: any = { 11: 'J', 12: 'Q', 13: 'K', 14: 'A' };
-    const displayValue = valueLabels[card.value] || card.value;
+    const displayValue = VALUE_LABELS[card.value] || card.value;
 
     const isShowdown = gameState?.gameStage === 'SHOWDOWN';
     const isPartOfWinningHand = checkCardInWinningCombo(card);
@@ -200,7 +197,6 @@ export default function App() {
                 {renderCardComponent(card, false, 0)}
               </motion.div>
             ))}
-            {/* 💡 기권승으로 리버 카드가 안 열렸을 때 토끼 뒷면 패널 채워넣기 연출 */}
             {gameState?.gameStage === 'SHOWDOWN' && gameState?.communityCards?.length < 5 && (
               <div className="w-9 h-13 bg-gray-600/30 rounded-md border border-white/10 flex items-center justify-center opacity-40 text-xs">🐰</div>
             )}
@@ -238,7 +234,6 @@ export default function App() {
 
             const isHandExposedByServer = isShowdown && gameState?.isHandExposed && gameState?.exposeHandRequesterId === player.id;
             
-            // 💡 내 화면 로컬 카드 드로우 기믹 결합
             const showLeftCard = isShowdown ? (!player.isFolded && (isWinner || isMe || isHandExposedByServer || (isMe && exposeLeft))) : isMe;
             const showRightCard = isShowdown ? (!player.isFolded && (isWinner || isMe || isHandExposedByServer || (isMe && exposeRight))) : isMe;
 
@@ -249,7 +244,6 @@ export default function App() {
                 style={{ top: SEAT_POSITIONS[idx]?.top, left: SEAT_POSITIONS[idx]?.left }}
               >
                 
-                {/* 카드 레이아웃 컨테이너 */}
                 <div className="absolute bottom-[44%] mb-1 flex flex-col items-center justify-center pointer-events-none z-30 w-24">
                   {gameState?.gameStage !== 'WAITING' && !player.isRebuyWaiting && player.cards && player.cards.length > 0 && (
                     <>
@@ -262,7 +256,6 @@ export default function App() {
                         </div>
                       </div>
                       
-                      {/* 💡 [WPL 씽크 100%]: 내 아바타 위 혹은 카드 밑에 현재 족보 표시 안내 (예: 하이카드, 원페어) */}
                       {!player.isFolded && (
                         <div className="mt-1 bg-black/80 px-2 py-0.5 rounded text-[9px] text-yellow-400 font-bold tracking-wide shadow-md uppercase">
                           {getHandLabel(player)}
@@ -272,14 +265,14 @@ export default function App() {
                   )}
                 </div>
 
-                {/* 💡 [WPL 씽크 100% 핵심 수정]: 내 좌석(0번) 정중앙 바로 밑에 스크린샷과 똑같은 슬롯형 개별 카드 오픈 창 배치 */}
+                {/* 💡 [정상 구동 확보]: 상단 스코프의 VALUE_LABELS을 매핑하여 가동 실패 에러 완전 타파 */}
                 {isMe && isMyExposeHandRequestTurn && (
                   <div className="absolute top-[110%] w-48 flex justify-center gap-1 z-40 bg-black/90 p-1 rounded-lg border border-gray-800 shadow-2xl scale-90">
                     <button onClick={() => setExposeLeft(true)} className={`flex-1 py-1.5 rounded text-[10px] font-bold border transition-all ${exposeLeft ? 'bg-gray-800 text-gray-500 border-transparent' : 'bg-neutral-800 hover:bg-neutral-700 text-white border-white/10'}`}>
-                      {valueLabels[player.cards[0]?.value] || player.cards[0]?.value} 오픈
+                      {VALUE_LABELS[player.cards[0]?.value] || player.cards[0]?.value} 오픈
                     </button>
                     <button onClick={() => setExposeRight(true)} className={`flex-1 py-1.5 rounded text-[10px] font-bold border transition-all ${exposeRight ? 'bg-gray-800 text-gray-500 border-transparent' : 'bg-neutral-800 hover:bg-neutral-700 text-white border-white/10'}`}>
-                      {valueLabels[player.cards[1]?.value] || player.cards[1]?.value} 오픈
+                      {VALUE_LABELS[player.cards[1]?.value] || player.cards[1]?.value} 오픈
                     </button>
                     <button onClick={handleExposeHandToServer} className="flex-1 py-1.5 bg-gradient-to-b from-yellow-500 to-amber-600 text-black rounded text-[10px] font-black shadow-md border-t border-white/20">
                       전체오픈
