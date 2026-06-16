@@ -18,13 +18,6 @@ export interface SidePot {
   eligiblePlayerIds: string[];
 }
 
-const logCard = (card: Card) => {
-  if (!card) return '없음';
-  const suits: any = { H: '♥', D: '◆', C: '♣', S: '♠' };
-  const values: any = { 11: 'J', 12: 'Q', 13: 'K', 14: 'A' };
-  return `${suits[card.suit]}${values[card.value] || card.value}`;
-};
-
 function evaluate7Cards(hole: Card[], community: Card[]): { rank: number; label: string; combo: Card[] } {
   const all = [...hole, ...community];
   if (all.length < 5) return { rank: 0, label: '하이카드', combo: all.slice(0, 5) };
@@ -94,8 +87,8 @@ export class TournamentRoom {
   public roundWinnerLabel: string = ''; 
   public winningCards: Card[] = []; 
 
-  public exposeHandRequesterId: string = ''; 
-  public isHandExposed: boolean = false; 
+  // 💡 [로직 수정]: 특정 타겟 지정 없이, '누가' 핸드 공개 패킷들을 쐈는지 다중 추적하기 위해 배열 형태로 마이그레이션
+  public exposedPlayerIds: string[] = []; 
 
   private blindTimer: NodeJS.Timeout | null = null;
   private actionTimer: NodeJS.Timeout | null = null;
@@ -173,8 +166,7 @@ export class TournamentRoom {
     this.isAnimatingBoard = false;
     this.currentPot = 0;
     this.highestBet = 0;
-    this.exposeHandRequesterId = '';
-    this.isHandExposed = false;
+    this.exposedPlayerIds = [];
     
     this.players.forEach(p => { 
       p.cards = []; 
@@ -201,8 +193,7 @@ export class TournamentRoom {
     this.roundWinnerLabel = '';
     this.winningCards = []; 
     this.isAnimatingBoard = false;
-    this.exposeHandRequesterId = '';
-    this.isHandExposed = false;
+    this.exposedPlayerIds = [];
 
     this.players.forEach(p => {
       if (!p.isRebuyWaiting && p.chips > 0) {
@@ -377,8 +368,6 @@ export class TournamentRoom {
       this.currentPot = 0;
       
       this.gameStage = 'SHOWDOWN'; 
-      this.exposeHandRequesterId = winner?.id || '';
-      this.isHandExposed = false; 
 
       if (this.actionTimer) clearInterval(this.actionTimer);
       this.io.to(this.id).emit('room_updated', this.getState());
@@ -416,10 +405,10 @@ export class TournamentRoom {
     this.nextStage();
   }
 
+  // 💡 [오픈 핵심 패치]: 폴드 여부 필터를 삭제하여 FOLD 유저도 전체 브로드캐스팅 가능하도록 개정
   public handleExposeHand(id: string): boolean {
-    if (this.gameStage === 'SHOWDOWN' && this.exposeHandRequesterId === id && !this.isHandExposed) {
-      this.isHandExposed = true; 
-      console.log(`💡 [EXPOSE_HAND] 플레이어가 핸드를 공개했습니다 (ID: ${id})`);
+    if (this.gameStage === 'SHOWDOWN' && !this.exposedPlayerIds.includes(id)) {
+      this.exposedPlayerIds.push(id); 
       this.io.to(this.id).emit('room_updated', this.getState()); 
       return true;
     }
@@ -456,7 +445,6 @@ export class TournamentRoom {
   }
 
   private nextStage() {
-    // 💡 [버그 완벽 수정]: 다음 스트리트 진입 시 모든 유저의 로컬 베팅 값을 완벽하게 동기화하고 누수 차단
     this.players.forEach(p => { 
       p.currentBet = 0; 
       p.hasActed = p.isFolded || p.isAllIn || p.isRebuyWaiting; 
@@ -582,10 +570,6 @@ export class TournamentRoom {
     }, 7000);
   }
 
-  private updateStateAndBroadcast() {
-    this.io.to(this.id).emit('room_updated', this.getState());
-  }
-
   private wrapUpHand() {
     this.players.forEach(p => {
       if (p.chips === 0 && p.buyInCount < 3) {
@@ -651,8 +635,7 @@ export class TournamentRoom {
       roundWinnerLabel: this.roundWinnerLabel, 
       winningCards: this.winningCards, 
       isAnimatingBoard: this.isAnimatingBoard, 
-      exposeHandRequesterId: this.exposeHandRequesterId,
-      isHandExposed: this.isHandExposed,
+      exposedPlayerIds: this.exposedPlayerIds, 
       players: this.players.map(p => ({
         id: p.id,
         name: p.name,

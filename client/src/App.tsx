@@ -13,7 +13,6 @@ const SEAT_POSITIONS = [
   { top: '65%', left: '85%' }, 
 ];
 
-// 💡 [컴파일 에러 해결]: 어디서든 안전하게 파싱할 수 있도록 객체 정의를 최상단 전역 스코프로 마이그레이션
 const VALUE_LABELS: any = { 11: 'J', 12: 'Q', 13: 'K', 14: 'A' };
 
 let socket: Socket;
@@ -29,6 +28,7 @@ export default function App() {
   const [showSlider, setShowSlider] = useState(false);
   const [globalTimer, setGlobalTimer] = useState<number>(15);
 
+  // 개별 카드 로컬 오픈 상태 변수
   const [exposeLeft, setExposeLeft] = useState(false);
   const [exposeRight, setExposeRight] = useState(false);
 
@@ -167,8 +167,6 @@ export default function App() {
   const callCost = currentHighest - myCurrentBet;
   const isShowdown = gameState?.gameStage === 'SHOWDOWN';
 
-  const isMyExposeHandRequestTurn = isShowdown && gameState?.exposeHandRequesterId === socket.id;
-
   return (
     <div className="w-full h-screen bg-[#0c0d11] flex flex-col justify-between overflow-hidden text-white relative font-sans select-none">
       
@@ -232,10 +230,11 @@ export default function App() {
             const circumference = 2 * Math.PI * radius;
             const strokeDashoffset = circumference - (globalTimer / 15) * circumference;
 
-            const isHandExposedByServer = isShowdown && gameState?.isHandExposed && gameState?.exposeHandRequesterId === player.id;
+            // 💡 [오픈 권한 대개혁]: 서버 측 전파 리스트(`exposedPlayerIds`) 매핑 결합
+            const isHandExposedByServer = gameState?.exposedPlayerIds?.includes(player.id);
             
-            const showLeftCard = isShowdown ? (!player.isFolded && (isWinner || isMe || isHandExposedByServer || (isMe && exposeLeft))) : isMe;
-            const showRightCard = isShowdown ? (!player.isFolded && (isWinner || isMe || isHandExposedByServer || (isMe && exposeRight))) : isMe;
+            const showLeftCard = isShowdown ? (isWinner || isMe || isHandExposedByServer || (isMe && exposeLeft)) : isMe;
+            const showRightCard = isShowdown ? (isWinner || isMe || isHandExposedByServer || (isMe && exposeRight)) : isMe;
 
             return (
               <div 
@@ -264,21 +263,6 @@ export default function App() {
                     </>
                   )}
                 </div>
-
-                {/* 💡 [정상 구동 확보]: 상단 스코프의 VALUE_LABELS을 매핑하여 가동 실패 에러 완전 타파 */}
-                {isMe && isMyExposeHandRequestTurn && (
-                  <div className="absolute top-[110%] w-48 flex justify-center gap-1 z-40 bg-black/90 p-1 rounded-lg border border-gray-800 shadow-2xl scale-90">
-                    <button onClick={() => setExposeLeft(true)} className={`flex-1 py-1.5 rounded text-[10px] font-bold border transition-all ${exposeLeft ? 'bg-gray-800 text-gray-500 border-transparent' : 'bg-neutral-800 hover:bg-neutral-700 text-white border-white/10'}`}>
-                      {VALUE_LABELS[player.cards[0]?.value] || player.cards[0]?.value} 오픈
-                    </button>
-                    <button onClick={() => setExposeRight(true)} className={`flex-1 py-1.5 rounded text-[10px] font-bold border transition-all ${exposeRight ? 'bg-gray-800 text-gray-500 border-transparent' : 'bg-neutral-800 hover:bg-neutral-700 text-white border-white/10'}`}>
-                      {VALUE_LABELS[player.cards[1]?.value] || player.cards[1]?.value} 오픈
-                    </button>
-                    <button onClick={handleExposeHandToServer} className="flex-1 py-1.5 bg-gradient-to-b from-yellow-500 to-amber-600 text-black rounded text-[10px] font-black shadow-md border-t border-white/20">
-                      전체오픈
-                    </button>
-                  </div>
-                )}
 
                 <div className="relative w-18 h-18 rounded-full flex items-center justify-center shadow-xl mt-5">
                   {isTurn && (
@@ -349,23 +333,64 @@ export default function App() {
         )}
       </div>
 
-      <div className="w-full bg-[#14151a] p-4 border-t border-white/5 z-20">
+      {/* 💡 [WPL 싱크 100% 매핑]: 하단 베팅 바 영역에 스크린샷 4단 분할 패널을 결합 */}
+      <div className="w-full bg-[#14151a] p-4 border-t border-white/5 z-20 min-h-[80px] flex items-center justify-center">
         {gameState?.isAnimatingBoard ? (
           <div className="w-full py-4 bg-yellow-500/5 rounded-xl text-center text-xs text-yellow-500 border border-yellow-500/10 font-bold tracking-widest animate-pulse uppercase">
             🎬 ALL-IN SHOWDOWN: 보드 순차 오픈 연출 중...
           </div>
         ) : gameState?.gameStage === 'SHOWDOWN' ? (
-          <div className="w-full py-4 bg-emerald-500/5 rounded-xl text-center text-xs text-emerald-400 border border-emerald-500/10 font-bold tracking-widest animate-pulse uppercase">
-            {isMyExposeHandRequestTurn ? '🏆 기권승! 카드 오픈 메뉴가 내 좌석 하단에 활성화되었습니다.' : '📊 SHOWDOWN: 경기 결과 및 족보 정산 확인 중...'}
-          </div>
+          // 💡 [요구사항 반영]: 정산창 시작 시, 폴드한 사람을 포함해 관전 중이 아닌 카드 보유 유저 전원에게 4버튼 노출
+          myData && myData.cards && myData.cards.length > 0 ? (
+            <div className="w-full grid grid-cols-4 gap-1.5 bg-[#1c1d24] p-1.5 rounded-xl border border-white/5">
+              <button 
+                onClick={() => setExposeLeft(true)} 
+                className={`py-3 rounded-lg text-xs font-black border transition-all flex flex-col items-center justify-center leading-tight ${
+                  exposeLeft ? 'bg-black/40 text-gray-600 border-transparent' : 'bg-neutral-800 hover:bg-neutral-700 text-white border-white/5'
+                }`}
+              >
+                <span className="text-[10px] opacity-60 block font-mono">1번 카드</span>
+                <span className="text-yellow-400">{VALUE_LABELS[myData.cards[0]?.value] || myData.cards[0]?.value} 오픈</span>
+              </button>
+              
+              <button 
+                onClick={() => setExposeRight(true)} 
+                className={`py-3 rounded-lg text-xs font-black border transition-all flex flex-col items-center justify-center leading-tight ${
+                  exposeRight ? 'bg-black/40 text-gray-600 border-transparent' : 'bg-neutral-800 hover:bg-neutral-700 text-white border-white/5'
+                }`}
+              >
+                <span className="text-[10px] opacity-60 block font-mono">2번 카드</span>
+                <span className="text-yellow-400">{VALUE_LABELS[myData.cards[1]?.value] || myData.cards[1]?.value} 오픈</span>
+              </button>
+              
+              <button 
+                onClick={handleExposeHandToServer} 
+                className="py-3 bg-gradient-to-b from-neutral-800 to-neutral-900 border border-white/10 hover:from-neutral-700 hover:to-neutral-800 text-yellow-500 rounded-lg text-xs font-black flex flex-col items-center justify-center leading-tight shadow-md"
+              >
+                <span className="text-[10px] opacity-60 block font-mono">전체</span>
+                <span>오픈하기</span>
+              </button>
+              
+              <button 
+                className="py-3 bg-gradient-to-b from-neutral-700 to-neutral-800 text-gray-400 border border-white/5 rounded-lg text-xs font-black flex items-center justify-center uppercase font-mono tracking-wider cursor-not-allowed opacity-50"
+                disabled
+              >
+                래빗헌팅
+              </button>
+            </div>
+          ) : (
+            <div className="w-full py-4 bg-emerald-500/5 rounded-xl text-center text-xs text-emerald-400 border border-emerald-500/10 font-bold tracking-widest animate-pulse uppercase">
+              📊 SHOWDOWN: 경기 결과 및 족보 정산 확인 중...
+            </div>
+          )
         ) : isMyTurn && !myData?.isRebuyWaiting && myData?.cards?.length > 0 ? (
           callCost === 0 ? (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="w-full grid grid-cols-2 gap-2">
               <button onClick={() => handleAction('CHECK')} className="bg-gradient-to-b from-sky-600 to-sky-700 py-3.5 rounded-xl font-bold text-xs uppercase shadow-md border-t border-sky-400/20">체크</button>
               <button onClick={() => { setRaiseValue(currentHighest + (gameState?.blind?.bb || 200)); setShowSlider(!showSlider); }} className="bg-gradient-to-b from-amber-500 to-amber-600 text-black py-3.5 rounded-xl font-black text-xs uppercase shadow-md border-t border-amber-300/30">레이즈</button>
             </div>
           ) : (
-            <div className="grid grid-cols-3 gap-2">
+            <div className="w-full grid grid-cols-3 gap-2">
               <button onClick={() => handleAction('FOLD')} className="bg-gradient-to-b from-gray-700 to-gray-800 py-3.5 rounded-xl font-bold text-xs uppercase shadow-md">폴드</button>
               <button onClick={() => handleAction('CALL')} className="bg-gradient-to-b from-emerald-600 to-emerald-700 py-3.5 rounded-xl font-bold text-xs uppercase shadow-md border-t border-emerald-400/20">콜 ({callCost.toLocaleString()})</button>
               <button onClick={() => { setRaiseValue(currentHighest + (gameState?.blind?.bb || 200)); setShowSlider(!showSlider); }} className="bg-gradient-to-b from-amber-500 to-amber-600 text-black py-3.5 rounded-xl font-black text-xs uppercase shadow-md border-t border-amber-300/30">레이즈</button>
