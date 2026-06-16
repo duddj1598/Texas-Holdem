@@ -208,7 +208,9 @@ export default function App() {
             const strokeDashoffset = circumference - (globalTimer / 15) * circumference;
 
             const isHandExposedByServer = isShowdown && gameState?.isHandExposed && gameState?.exposeHandRequesterId === player.id;
-            const shouldExposeCard = isShowdown || isMe || isHandExposedByServer;
+            
+            // 💡 [버그 원천 해결 핵심 가드]: 해당 유저가 'FOLD'를 선언한 상태라면 쇼다운 연출 타임이어도 카드를 절대 보여주지 않음 (정통 홀덤 머크 룰 완벽 반영)
+            const shouldExposeCard = !player.isFolded && (isShowdown || isMe || isHandExposedByServer);
 
             return (
               <div 
@@ -230,6 +232,7 @@ export default function App() {
                           </div>
                         </>
                       ) : (
+                        // 💡 내가 폴드를 했거나 타인이 폴드해서 가려진 상태면 무조건 카드 뒷면 처리
                         <>
                           <div className="absolute left-0 z-10 shadow-md">{renderCardComponent(null, true, 0)}</div>
                           <div className="absolute left-4 z-20 shadow-xl">{renderCardComponent(null, true, 1)}</div>
@@ -314,7 +317,6 @@ export default function App() {
             🎬 ALL-IN SHOWDOWN: 보드 순차 오픈 연출 중...
           </div>
         ) : gameState?.gameStage === 'SHOWDOWN' ? (
-          // 💡 [요구사항 반영]: 전달받은 스크린샷 템플릿 형태로 정산 바 레이아웃 배치 전면 개편
           isMyExposeHandRequestTurn ? (
             <div className="w-full flex flex-col gap-2">
               <div className="w-full py-2.5 bg-emerald-500/10 rounded-xl text-center text-xs text-emerald-400 border border-emerald-500/20 font-bold tracking-wide animate-pulse">
@@ -333,7 +335,6 @@ export default function App() {
             </div>
           )
         ) : isMyTurn && !myData?.isRebuyWaiting && myData?.cards?.length > 0 ? (
-          // 💡 [요구사항 반영]: 체크 가능 상황(callCost === 0)일 때 폴드 옵션을 원천 제거하여 오작동 방지
           callCost === 0 ? (
             <div className="grid grid-cols-2 gap-2">
               <button onClick={() => handleAction('CHECK')} className="bg-gradient-to-b from-sky-600 to-sky-700 py-3.5 rounded-xl font-bold text-xs uppercase shadow-md border-t border-sky-400/20">체크</button>
