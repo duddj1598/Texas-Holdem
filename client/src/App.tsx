@@ -1,16 +1,16 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const SEAT_POSITIONS = [
-  { top: '84%', left: '50%' }, 
-  { top: '65%', left: '15%' }, 
-  { top: '32%', left: '15%' }, 
-  { top: '14%', left: '30%' }, 
-  { top: '12%', left: '50%' }, 
-  { top: '14%', left: '70%' }, 
-  { top: '32%', left: '85%' }, 
-  { top: '65%', left: '85%' }, 
+  { top: '84%', left: '50%' }, // 0: 내 화면 하단 정중앙 고정좌석
+  { top: '65%', left: '15%' }, // 1: 좌측 하단
+  { top: '32%', left: '15%' }, // 2: 좌측 상단 (보드 위로 올림)
+  { top: '14%', left: '30%' }, // 3: 상단 좌측
+  { top: '12%', left: '50%' }, // 4: 상단 정중앙
+  { top: '14%', left: '70%' }, // 5: 상단 우측
+  { top: '32%', left: '85%' }, // 6: 우측 상단
+  { top: '65%', left: '85%' }, // 7: 우측 하단
 ];
 
 let socket: Socket;
@@ -27,13 +27,11 @@ export default function App() {
   const [globalTimer, setGlobalTimer] = useState<number>(15);
 
   useEffect(() => {
-    const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:4000';
-    socket = io(SERVER_URL);
+    socket = io('http://localhost:4000');
     
     socket.on('room_updated', (data) => {
       setGameState(data);
       setGlobalTimer(data.timeLeft);
-      
       const me = data.players.find((p: any) => p.id === socket.id);
       if (me && me.isRebuyWaiting) {
         setShowRebuy(true);
@@ -72,6 +70,7 @@ export default function App() {
     return [...players.slice(myIndex), ...players.slice(0, myIndex)];
   };
 
+  // 💡 [버그 완전 박멸]: 문자열 직렬화 결합으로 형변환 차이 완벽 해소
   const checkCardInWinningCombo = (card: any) => {
     if (!gameState || !gameState.winningCards || !card) return false;
     const targetKey = `${String(card.suit)}${String(card.value)}`.trim().toUpperCase();
@@ -109,7 +108,7 @@ export default function App() {
             ? 'border-amber-400 ring-2 ring-amber-400 scale-110 shadow-[0_0_25px_#eab308] z-40' 
             : 'border-gray-300 shadow-lg'
         } ${applyGrayscale ? 'opacity-25 grayscale scale-90 contrast-75' : 'opacity-100'}`}
-        style={{ transform: `rotate(${indexOffset === 0 ? '-4deg' : '4deg'})` }}
+        style={{ transform: `rotate(${indexOffset === 0 ? '-4deg' : '4deg'})` }} // 부채꼴 겹침 각도 유지
       >
         <div className={`leading-none text-left font-sans ${suitColors[card.suit]}`}>{displayValue}</div>
         <div className={`text-right text-base leading-none ${suitColors[card.suit]}`}>{suitSymbols[card.suit]}</div>
@@ -132,7 +131,7 @@ export default function App() {
   const orderedPlayers = getOrderedPlayers();
   const myData = gameState?.players.find((p: any) => p.id === socket.id);
   const currentTurnPlayer = gameState?.players[gameState?.currentTurnIndex];
-  const isMyTurn = currentTurnPlayer?.id === socket.id && !gameState?.isAnimatingBoard && gameState?.gameStage !== 'SHOWDOWN';
+  const isMyTurn = currentTurnPlayer?.id === socket.id;
   
   const currentHighest = gameState?.highestBet || 0;
   const myCurrentBet = myData?.currentBet || 0;
@@ -161,6 +160,7 @@ export default function App() {
             ))}
           </div>
 
+          {/* 중앙 공용 카드 보드 단구 */}
           <div className="flex gap-1 justify-center max-w-[260px] absolute top-[44%] z-10">
             {gameState?.communityCards?.map((card: any, i: number) => (
               <motion.div key={i} initial={{ scale: 0 }} animate={{ scale: 1 }}>
@@ -169,6 +169,7 @@ export default function App() {
             ))}
           </div>
 
+          {/* 💡 [요구사항 반영]: 쇼다운 시 커뮤니티 카드 정중앙 바로 하단에 거대 족보 전광판 노출 */}
           <AnimatePresence>
             {isShowdown && gameState?.roundWinnerLabel && (
               <motion.div 
@@ -188,9 +189,10 @@ export default function App() {
             <button onClick={() => socket.emit('start_game')} className="absolute bg-gradient-to-b from-yellow-400 to-yellow-600 text-black font-black text-xs px-6 py-3 rounded-xl shadow-2xl z-20">▶ GAME START</button>
           )}
 
+          {/* 플레이어 카드 구조화 루프 */}
           {orderedPlayers.map((player: any, idx: number) => {
             const originalIdx = gameState.players.findIndex((p: any) => p.id === player.id);
-            const isTurn = gameState?.currentTurnIndex === originalIdx && gameState?.gameStage !== 'WAITING' && !gameState?.isAnimatingBoard && gameState?.gameStage !== 'SHOWDOWN';
+            const isTurn = gameState?.currentTurnIndex === originalIdx && gameState?.gameStage !== 'WAITING';
             const isMe = player.id === socket.id;
             const isDealer = gameState?.dealerIndex === originalIdx;
             const isWinner = isShowdown && gameState?.roundWinnerId === player.id;
@@ -303,10 +305,6 @@ export default function App() {
           <div className="col-span-3 py-4 bg-yellow-500/5 rounded-xl text-center text-xs text-yellow-500 border border-yellow-500/10 font-bold tracking-widest animate-pulse uppercase">
             🎬 ALL-IN SHOWDOWN: 보드 순차 오픈 연출 중...
           </div>
-        ) : gameState?.gameStage === 'SHOWDOWN' ? (
-          <div className="col-span-3 py-4 bg-emerald-500/5 rounded-xl text-center text-xs text-emerald-400 border border-emerald-500/10 font-bold tracking-widest animate-pulse uppercase">
-            📊 SHOWDOWN: 경기 결과 및 족보 정산 확인 중...
-          </div>
         ) : isMyTurn && !myData?.isRebuyWaiting && myData?.cards?.length > 0 ? (
           <>
             <button onClick={() => handleAction('FOLD')} className="bg-gradient-to-b from-gray-700 to-gray-800 py-3.5 rounded-xl font-bold text-xs uppercase shadow-md">폴드</button>
@@ -333,7 +331,7 @@ export default function App() {
           <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4">
             <div className="bg-[#1c1c1e] border border-gray-800 rounded-2xl p-5 max-w-xs w-full text-center shadow-2xl">
               <h3 className="text-sm font-bold text-yellow-500 mb-1">💡 토너먼트 리바이인</h3>
-              <p className="text-[11px] text-gray-400 mb-4">칩이 모두 소진되었습니다.<br />리바이인(30,000칩)을 충전하고 즉시 복귀하시겠습니까?</p>
+              <p className="text-[11px] text-gray-400 mb-4">칩이 모두 소진되었습니다.<br />리바이인(30,000칩)을 충전하고 즉시 복귀하시습니까?</p>
               <div className="grid grid-cols-2 gap-2">
                 <button onClick={handleDeclareOut} className="bg-red-900/40 border border-red-500/30 text-red-400 py-2.5 rounded-xl text-xs font-bold">기권 (최종탈락)</button>
                 <button onClick={() => { socket.emit('request_rebuy'); setShowRebuy(false); }} className="bg-green-600 py-2.5 rounded-xl text-xs font-bold text-white shadow-md">30K 충전 복귀</button>

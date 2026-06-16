@@ -18,28 +18,16 @@ export interface SidePot {
   eligiblePlayerIds: string[];
 }
 
-const logCard = (card: Card) => {
-  if (!card) return '없음';
-  const suits: any = { H: '♥', D: '◆', C: '♣', S: '♠' };
-  const values: any = { 11: 'J', 12: 'Q', 13: 'K', 14: 'A' };
-  return `${suits[card.suit]}${values[card.value] || card.value}`;
-};
-
 function evaluate7Cards(hole: Card[], community: Card[]): { rank: number; label: string; combo: Card[] } {
   const all = [...hole, ...community];
   if (all.length < 5) return { rank: 0, label: '하이카드', combo: all.slice(0, 5) };
-
   const sorted = [...all].sort((a, b) => b.value - a.value);
 
   const suits: any = { H: [], D: [], C: [], S: [] };
-  sorted.forEach(c => {
-    if (suits[c.suit]) suits[c.suit].push(c);
-  });
+  sorted.forEach(c => { if (suits[c.suit]) suits[c.suit].push(c); });
 
   for (const suit in suits) {
-    if (suits[suit].length >= 5) {
-      return { rank: 5, label: '플러시 🏆', combo: suits[suit].slice(0, 5) };
-    }
+    if (suits[suit].length >= 5) return { rank: 5, label: '플러시 🏆', combo: suits[suit].slice(0, 5) };
   }
 
   const groups: Record<number, Card[]> = {};
@@ -71,7 +59,6 @@ function evaluate7Cards(hole: Card[], community: Card[]): { rank: number; label:
     const kickers = sorted.filter(c => c.value !== groupList[0][0].value).slice(0, 3);
     return { rank: 1, label: '원페어', combo: [...groupList[0], ...kickers] };
   }
-
   return { rank: 0, label: '하이카드', combo: sorted.slice(0, 5) };
 }
 
@@ -99,7 +86,6 @@ export class TournamentRoom {
   private io: any;
   private deck!: Deck;
   private timeLeft: number = 15;
-  private isAnimatingBoard: boolean = false; 
 
   private blindStructure = [
     { sb: 100, bb: 200 }, { sb: 200, bb: 400 }, { sb: 300, bb: 600 }
@@ -118,7 +104,7 @@ export class TournamentRoom {
         this.blindLevel++;
         this.io.to(this.id).emit('blind_up', this.getBlindState());
       }
-    }, 420000); 
+    }, 420000);
   }
 
   public getBlindState() {
@@ -129,21 +115,8 @@ export class TournamentRoom {
   public addPlayer(id: string, name: string): boolean {
     if (this.players.length >= 9) return false;
     if (this.players.length === 0) this.hostId = id;
-    
     const isMidGameJoin = this.gameStage !== 'WAITING';
-
-    this.players.push({ 
-      id, 
-      name, 
-      chips: 20000, 
-      buyInCount: 1, 
-      isFolded: isMidGameJoin, 
-      isAllIn: false, 
-      currentBet: 0, 
-      cards: [], 
-      hasActed: isMidGameJoin, 
-      isRebuyWaiting: false 
-    });
+    this.players.push({ id, name, chips: 20000, buyInCount: 1, isFolded: isMidGameJoin, isAllIn: false, currentBet: 0, cards: [], hasActed: isMidGameJoin, isRebuyWaiting: false });
     return true;
   }
 
@@ -160,7 +133,6 @@ export class TournamentRoom {
     this.roundWinnerId = '';
     this.roundWinnerLabel = '';
     this.winningCards = [];
-    this.isAnimatingBoard = false;
     this.players.forEach(p => { p.cards = []; p.currentBet = 0; p.isFolded = false; p.isAllIn = false; p.hasActed = false; p.isRebuyWaiting = false; });
     if (this.actionTimer) clearInterval(this.actionTimer);
     this.io.to(this.id).emit('room_updated', this.getState());
@@ -173,11 +145,11 @@ export class TournamentRoom {
   }
 
   private startNewHand() {
+    // 💡 [초기화 락 해제]: 다음 판 패를 셔플해 돌릴 때 비로소 이전 쇼다운 팟 메모리를 청소함
     this.sidePots = [];
     this.roundWinnerId = '';
     this.roundWinnerLabel = '';
     this.winningCards = []; 
-    this.isAnimatingBoard = false;
 
     this.players.forEach(p => {
       if (!p.isRebuyWaiting && p.chips > 0) {
@@ -190,18 +162,7 @@ export class TournamentRoom {
     
     if (survivors.length < 2) {
       const finalWinner = survivors[0] || this.players.find(p => p.chips > 0);
-      
-      const tournamentReport = this.players.map(p => ({
-        name: p.name,
-        finalChips: p.id === finalWinner?.id ? p.chips + this.currentPot : p.chips, 
-        totalRebuys: p.buyInCount - 1 
-      })).sort((a, b) => b.finalChips - a.finalChips);
-
-      this.io.to(this.id).emit('tournament_winner', { 
-        winner: finalWinner ? finalWinner.name : 'Unknown',
-        report: tournamentReport
-      });
-
+      this.io.to(this.id).emit('tournament_winner', { winner: finalWinner ? finalWinner.name : 'Unknown' });
       this.resetToLobby();
       return;
     }
@@ -265,7 +226,6 @@ export class TournamentRoom {
 
   private startActionTimer() {
     if (this.actionTimer) clearInterval(this.actionTimer);
-    if (this.isAnimatingBoard) return; 
     this.timeLeft = 15;
     
     this.actionTimer = setInterval(() => {
@@ -281,8 +241,6 @@ export class TournamentRoom {
   }
 
   public handleAction(playerId: string, actionType: 'FOLD' | 'CHECK' | 'CALL' | 'RAISE', amount: number): boolean {
-    if (this.isAnimatingBoard) return false; 
-    
     const player = this.players[this.currentTurnIndex];
     if (!player || player.id !== playerId || this.gameStage === 'WAITING' || this.gameStage === 'SHOWDOWN') return false;
 
@@ -308,18 +266,17 @@ export class TournamentRoom {
     } else if (actionType === 'RAISE') {
       const minRaiseRequired = this.highestBet === 0 ? this.getBlindState().bb : this.highestBet * 2;
       
-      if (amount >= totalAvailableChips || (amount - player.currentBet) >= player.chips) {
-        const allInAmount = player.chips;
-        player.currentBet += allInAmount;
-        this.currentPot += allInAmount;
+      if (totalAvailableChips < minRaiseRequired) {
+        this.currentPot += player.chips;
+        player.currentBet += player.chips;
+        if (player.currentBet > this.highestBet) {
+          this.highestBet = player.currentBet;
+        }
         player.chips = 0; 
         player.isAllIn = true;
-        if (player.currentBet > this.highestBet) this.highestBet = player.currentBet;
       } else {
         if (amount < minRaiseRequired) return false;
         const addedBetCost = amount - player.currentBet;
-        if (player.chips < addedBetCost) return false;
-
         player.chips -= addedBetCost;
         player.currentBet = amount;
         this.currentPot += addedBetCost;
@@ -407,7 +364,14 @@ export class TournamentRoom {
     const nonAllInActive = this.players.filter(p => !p.isFolded && !p.isAllIn);
     
     if (nonAllInActive.length <= 1) {
-      this.runSequentialBoardReveal();
+      this.gameStage = 'SHOWDOWN';
+      if (this.actionTimer) clearInterval(this.actionTimer);
+      
+      while (this.communityCards.length < 5) {
+        const nextCard = this.deck.deal();
+        if (nextCard) this.communityCards.push(nextCard);
+      }
+      this.determineShowdownWinner();
       return;
     }
 
@@ -425,45 +389,13 @@ export class TournamentRoom {
       return;
     }
 
-    let nextIndex = (this.dealerIndex + 1) % this.players.length;
-    while (this.players[nextIndex].isFolded || this.players[nextIndex].isAllIn || this.players[nextIndex].isRebuyWaiting) {
-      nextIndex = (nextIndex + 1) % this.players.length;
+    this.currentTurnIndex = (this.dealerIndex + 1) % this.players.length;
+    while (this.players[this.currentTurnIndex].isFolded || this.players[this.currentTurnIndex].isAllIn) {
+      this.currentTurnIndex = (this.currentTurnIndex + 1) % this.players.length;
     }
-    this.currentTurnIndex = nextIndex;
 
     this.startActionTimer();
     this.io.to(this.id).emit('room_updated', this.getState());
-  }
-
-  private runSequentialBoardReveal() {
-    this.isAnimatingBoard = true;
-    if (this.actionTimer) clearInterval(this.actionTimer);
-
-    const intervalTime = 2200; 
-
-    const revealStep = () => {
-      if (this.gameStage === 'PREFLOP') {
-        this.gameStage = 'FLOP';
-        this.communityCards = [this.deck.deal(), this.deck.deal(), this.deck.deal()];
-        this.io.to(this.id).emit('room_updated', this.getState());
-        setTimeout(revealStep, intervalTime);
-      } else if (this.gameStage === 'FLOP') {
-        this.gameStage = 'TURN';
-        this.communityCards.push(this.deck.deal());
-        this.io.to(this.id).emit('room_updated', this.getState());
-        setTimeout(revealStep, intervalTime);
-      } else if (this.gameStage === 'TURN') {
-        this.gameStage = 'RIVER';
-        this.communityCards.push(this.deck.deal());
-        this.io.to(this.id).emit('room_updated', this.getState());
-        setTimeout(revealStep, intervalTime);
-      } else if (this.gameStage === 'RIVER') {
-        this.isAnimatingBoard = false;
-        this.determineShowdownWinner();
-      }
-    };
-
-    revealStep();
   }
 
   private determineShowdownWinner() {
@@ -491,36 +423,24 @@ export class TournamentRoom {
       (winningPlayer as Player).chips += this.currentPot;
       this.roundWinnerId = (winningPlayer as Player).id;
       this.roundWinnerLabel = winningLabel;
-      this.winningCards = bestCombo; 
+      this.winningCards = bestCombo; // 💡 족보 컴포넌트 5장 주입 완료
     }
 
-    this.currentPot = 0;
-    
-    // 💡 [버그 해결]: 쇼다운 결과 연출을 클라이언트가 평화롭게 다 즐기도록 룸 상태 전송을 먼저 수행함
-    this.io.to(this.id).emit('room_updated', this.getState());
-
-    // 💡 [딜레이 기믹 핵심]: 7초간의 결과 감상 타임아웃이 만료된 시점에 Rebuy 대기 열을 개방함
-    setTimeout(() => {
-      this.wrapUpHand();
-    }, 7000);
+    // 💡 [버그 대수술]: 쇼다운 화면 전송 직후 pot을 바로 0으로 비우지 않고 상태 유지 (클라이언트 지연 렌더링 동기화)
+    this.wrapUpHand();
   }
 
   private wrapUpHand() {
-    // 💡 7초 결과 감상이 끝난 직후에 0칩 플레이어들을 리바이인 대기 상태로 세팅
     this.players.forEach(p => {
       if (p.chips === 0 && p.buyInCount < 3) {
         p.isRebuyWaiting = true;
       }
     });
-    
-    // 리바이인 플래그가 전송되면서 클라이언트 화면에 팝업이 노출되게 함
     this.io.to(this.id).emit('room_updated', this.getState());
 
-    // 만약 리바이인 대기자가 아무도 없다면 즉시 다음 판 자동 시작
-    const anyoneWaiting = this.players.some(p => p.isRebuyWaiting);
-    if (!anyoneWaiting) {
+    setTimeout(() => {
       this.startNewHand();
-    }
+    }, 7000); // 7초 감상 시간 유도 후 초기화
   }
 
   public handleRebuy(id: string): boolean {
@@ -529,14 +449,6 @@ export class TournamentRoom {
       player.chips = 30000;
       player.buyInCount++;
       player.isRebuyWaiting = false; 
-      
-      // 누군가 복귀 시 리바이인 대기열이 전부 처리되었는지 검증 후 새 판 격발
-      const anyoneLeft = this.players.some(p => p.isRebuyWaiting);
-      if (!anyoneLeft && this.gameStage === 'SHOWDOWN') {
-        this.startNewHand();
-      } else {
-        this.io.to(this.id).emit('room_updated', this.getState());
-      }
       return true;
     }
     return false;
@@ -548,13 +460,6 @@ export class TournamentRoom {
       player.buyInCount = 3; 
       player.isRebuyWaiting = false;
       this.removePlayer(id);
-      
-      const anyoneLeft = this.players.some(p => p.isRebuyWaiting);
-      if (!anyoneLeft && this.gameStage === 'SHOWDOWN') {
-        this.startNewHand();
-      } else {
-        this.io.to(this.id).emit('room_updated', this.getState());
-      }
     }
   }
 
@@ -574,7 +479,6 @@ export class TournamentRoom {
       roundWinnerId: this.roundWinnerId, 
       roundWinnerLabel: this.roundWinnerLabel, 
       winningCards: this.winningCards, 
-      isAnimatingBoard: this.isAnimatingBoard, 
       players: this.players.map(p => ({
         id: p.id,
         name: p.name,
