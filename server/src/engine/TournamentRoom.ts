@@ -114,9 +114,10 @@ export class TournamentRoom {
   private startBlindTimer() {
     if (this.blindTimer) clearInterval(this.blindTimer);
     this.blindTimer = setInterval(() => {
-      if (this.blindLevel < this.blindStructure.length) {
+      if (this.gameStage !== 'WAITING' && this.blindLevel < this.blindStructure.length) {
         this.blindLevel++;
         this.io.to(this.id).emit('blind_up', this.getBlindState());
+        this.io.to(this.id).emit('room_updated', this.getState());
       }
     }, 420000); 
   }
@@ -150,18 +151,37 @@ export class TournamentRoom {
   public removePlayer(id: string) {
     this.players = this.players.filter(p => p.id !== id);
     if (this.hostId === id && this.players.length > 0) this.hostId = this.players[0].id;
-    if (this.players.length < 2) this.resetToLobby();
+    
+    // 💡 [요구사항 2]: 모든 플레이어가 나가거나 1명 이하만 남으면 대기실 복귀 및 블라인드 100/200 전면 리셋
+    if (this.players.length < 2) {
+      this.resetToLobby();
+    } else {
+      this.io.to(this.id).emit('room_updated', this.getState());
+    }
   }
 
   private resetToLobby() {
     this.gameStage = 'WAITING';
+    // 💡 [요구사항 2 핵심]: 다음 토너먼트 시작을 위해 블라인드 레벨을 무조건 1단계(100/200)로 리셋
+    this.blindLevel = 1; 
     this.communityCards = [];
     this.sidePots = [];
     this.roundWinnerId = '';
     this.roundWinnerLabel = '';
     this.winningCards = [];
     this.isAnimatingBoard = false;
-    this.players.forEach(p => { p.cards = []; p.currentBet = 0; p.isFolded = false; p.isAllIn = false; p.hasActed = false; p.isRebuyWaiting = false; });
+    this.currentPot = 0;
+    this.highestBet = 0;
+    
+    this.players.forEach(p => { 
+      p.cards = []; 
+      p.currentBet = 0; 
+      p.isFolded = false; 
+      p.isAllIn = false; 
+      p.hasActed = false; 
+      p.isRebuyWaiting = false; 
+    });
+    
     if (this.actionTimer) clearInterval(this.actionTimer);
     this.io.to(this.id).emit('room_updated', this.getState());
   }
@@ -188,6 +208,7 @@ export class TournamentRoom {
 
     const survivors = this.players.filter(p => !p.isRebuyWaiting && (p.chips > 0 || p.buyInCount < 3));
     
+    // 💡 [요구사항 2]: 토너먼트가 최종 종료되었을 때 정산창을 띄우고 로비로 돌아가며 블라인드 초기화
     if (survivors.length < 2) {
       const finalWinner = survivors[0] || this.players.find(p => p.chips > 0);
       
@@ -197,7 +218,6 @@ export class TournamentRoom {
         totalRebuys: p.buyInCount - 1 
       })).sort((a, b) => b.finalChips - a.finalChips);
 
-      // 💡 [버그 제압]: 대시보드 리포트를 클라이언트에 전송 후 레이싱 방지를 위해 딜레이 후 리셋 수행
       this.io.to(this.id).emit('tournament_winner', { 
         winner: finalWinner ? finalWinner.name : 'Unknown',
         report: tournamentReport
@@ -274,8 +294,9 @@ export class TournamentRoom {
     this.actionTimer = setInterval(() => {
       this.timeLeft--;
       if (this.timeLeft <= 0) {
-        clearInterval(this.actionTimer!);
+        if (this.actionTimer) clearInterval(this.actionTimer);
         const currentPlayer = this.players[this.currentTurnIndex];
+        // 타임아웃 강제 폴드 격발
         if (currentPlayer) this.handleAction(currentPlayer.id, 'FOLD', 0);
       } else {
         this.io.to(this.id).emit('timer_tick', { timeLeft: this.timeLeft, currentTurnIndex: this.currentTurnIndex });
@@ -289,8 +310,14 @@ export class TournamentRoom {
     const player = this.players[this.currentTurnIndex];
     if (!player || player.id !== playerId || this.gameStage === 'WAITING' || this.gameStage === 'SHOWDOWN') return false;
 
-    // 💡 [버그 1 해결]: 이미 폴드 처리된 유저의 액션 중복 격발 완벽 원천 차단 가드 추가
+    // 💡 [요구사항 1 완벽 해결]: 수동 클릭 및 자동 타임아웃 진입 시 해당 유저가 이미 FOLD 상태라면 연산을 즉시 탈출(차단)
     if (player.isFolded) return false;
+
+    // 액션이 유효하므로 즉시 타이머 해제하여 레이싱 컨디션 원천 방어
+    if (this.actionTimer) {
+      clearInterval(this.actionTimer);
+      this.actionTimer = null;
+    }
 
     player.hasActed = true;
     const totalAvailableChips = player.chips + player.currentBet;
@@ -366,6 +393,7 @@ export class TournamentRoom {
     while (loopCount < this.players.length) {
       nextIndex = (nextIndex + 1) % this.players.length;
       const p = this.players[nextIndex];
+      // 💡 폴드한 사람이나 올인한 사람, 리바이인 대기자는 철저하게 스킵
       if (!p.isFolded && !p.isAllIn && !p.isRebuyWaiting) {
         this.currentTurnIndex = nextIndex;
         this.startActionTimer();
@@ -378,7 +406,6 @@ export class TournamentRoom {
   }
 
   private calculateSidePots() {
-    // 💡 각 플레이어들의 이번 베팅 라운드 기여도를 바탕으로 정밀 팟 스택 분할 매핑
     const activeBets = this.players.filter(p => !p.isFolded && p.currentBet > 0).map(p => p.currentBet);
     if (activeBets.length === 0) return;
 
@@ -473,12 +500,10 @@ export class TournamentRoom {
     revealStep();
   }
 
-  // 💡 [버그 3 전면 해결]: 올인 발생 유무와 무관하게 모든 사이드 팟/메인 팟 지분별로 족보를 대조해 칩을 각각 분배하는 국제 표준 포커 정산 알고리즘 탑재
   private determineShowdownWinner() {
     this.gameStage = 'SHOWDOWN';
     if (this.actionTimer) clearInterval(this.actionTimer);
 
-    // 1단계: 아직 기권 안 한 쇼다운 경쟁자들 족보 점수 전원 사전 평가
     const contenders = this.players.filter(p => !p.isFolded);
     const evaluatedContenders = contenders.map(p => {
       const evalResult = evaluate7Cards(p.cards, this.communityCards);
@@ -491,31 +516,25 @@ export class TournamentRoom {
       };
     });
 
-    // 만약 라운드 액션 도중 사이드 팟 연산이 생략되었다면 실시간 백업 빌드 수행
     if (this.sidePots.length === 0 && this.currentPot > 0) {
       const eligibleIds = contenders.map(p => p.id);
       this.sidePots.push({ amount: this.currentPot, eligiblePlayerIds: eligibleIds });
     }
 
-    // 2단계: 쪼개진 각 사이드 팟 단위별로 승자를 독립 추적하여 지급 (숏칩 먹튀 원천 봉쇄)
     let absoluteWinnerId = '';
     let absoluteWinnerLabel = '하이카드';
     let absoluteWinningCombo: Card[] = [];
     let absoluteMaxRank = -1;
 
     this.sidePots.forEach((pot) => {
-      // 이 팟에 돈을 넣은 사람 중 폴드 안 한 생존 유저들 필터링
       const potEligibleUnits = evaluatedContenders.filter(unit => pot.eligiblePlayerIds.includes(unit.id));
       
       if (potEligibleUnits.length > 0) {
-        // 이 팟의 최고 족보 보유자 서칭
         potEligibleUnits.sort((a, b) => b.rank - a.rank);
         const potWinner = potEligibleUnits[0];
         
-        // 해당 승자에게 이 사이드 팟의 금액만 누적 지급
         potWinner.player.chips += pot.amount;
 
-        // 메인 대표 배너용 승자 최상위 연출 동기화
         if (potWinner.rank > absoluteMaxRank) {
           absoluteMaxRank = potWinner.rank;
           absoluteWinnerId = potWinner.id;
@@ -525,7 +544,6 @@ export class TournamentRoom {
       }
     });
 
-    // 대표 연출 데이터 룸 상태 박제
     this.roundWinnerId = absoluteWinnerId;
     this.roundWinnerLabel = absoluteWinnerLabel;
     this.winningCards = absoluteWinningCombo;
